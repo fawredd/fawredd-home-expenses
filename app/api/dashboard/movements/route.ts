@@ -11,16 +11,31 @@ export async function GET(request: NextRequest) {
     Logger.info("Fetching dashboard movements");
 
     const searchParams = request.nextUrl.searchParams;
-    
+
     const filters = {
-      startDate: searchParams.get("startDate") ? new Date(searchParams.get("startDate")!) : undefined,
-      endDate: searchParams.get("endDate") ? new Date(searchParams.get("endDate")!) : undefined,
+      startDate: searchParams.get("startDate")
+        ? new Date(searchParams.get("startDate")!)
+        : undefined,
+      endDate: searchParams.get("endDate")
+        ? new Date(searchParams.get("endDate")!)
+        : undefined,
       categoryIds: searchParams.getAll("categoryIds") as string[],
       vendorSearch: searchParams.get("vendorSearch") || undefined,
-      minAmount: searchParams.get("minAmount") ? parseFloat(searchParams.get("minAmount")!) : undefined,
-      maxAmount: searchParams.get("maxAmount") ? parseFloat(searchParams.get("maxAmount")!) : undefined,
-      movementType: (searchParams.get("movementType") as "income" | "expense" | "all") || "all",
-      sortBy: (searchParams.get("sortBy") as "date" | "amount" | "vendor" | "category") || "date",
+      minAmount: searchParams.get("minAmount")
+        ? parseFloat(searchParams.get("minAmount")!)
+        : undefined,
+      maxAmount: searchParams.get("maxAmount")
+        ? parseFloat(searchParams.get("maxAmount")!)
+        : undefined,
+      movementType:
+        (searchParams.get("movementType") as "income" | "expense" | "all") ||
+        "all",
+      sortBy:
+        (searchParams.get("sortBy") as
+          | "date"
+          | "amount"
+          | "vendor"
+          | "category") || "date",
       sortOrder: (searchParams.get("sortOrder") as "asc" | "desc") || "desc",
       limit: parseInt(searchParams.get("limit") || "50"),
       offset: parseInt(searchParams.get("offset") || "0"),

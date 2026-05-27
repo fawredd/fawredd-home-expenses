@@ -11,7 +11,7 @@ import { ZodError } from "zod";
 export function successResponse<T>(
   data: T,
   statusCode: number = 200,
-  message?: string
+  message?: string,
 ): NextResponse<ApiResponse<T>> {
   return NextResponse.json(
     {
@@ -20,7 +20,7 @@ export function successResponse<T>(
       message,
       timestamp: new Date().toISOString(),
     },
-    { status: statusCode }
+    { status: statusCode },
   );
 }
 
@@ -29,7 +29,7 @@ export function successResponse<T>(
  */
 export function errorResponse(
   error: unknown,
-  statusCode: number = 500
+  statusCode: number = 500,
 ): NextResponse<ApiResponse<null>> {
   let message = "Internal server error";
   let code = ErrorCodes.INTERNAL_ERROR;
@@ -55,7 +55,7 @@ export function errorResponse(
       message,
       timestamp: new Date().toISOString(),
     },
-    { status: statusCode }
+    { status: statusCode },
   );
 }
 
@@ -63,7 +63,7 @@ export function errorResponse(
  * Validation error response helper
  */
 export function validationErrorResponse(
-  errors: ZodError
+  errors: ZodError,
 ): NextResponse<ApiResponse<null>> {
   const formatted = errors.errors.map((err) => ({
     field: err.path.join("."),
@@ -78,7 +78,7 @@ export function validationErrorResponse(
       data: formatted,
       timestamp: new Date().toISOString(),
     },
-    { status: 400 }
+    { status: 400 },
   );
 }
 
@@ -86,7 +86,7 @@ export function validationErrorResponse(
  * Wrap async route handlers with error handling
  */
 export function withErrorHandling(
-  handler: (request: Request) => Promise<Response>
+  handler: (request: Request) => Promise<Response>,
 ): (request: Request) => Promise<Response> {
   return async (request: Request) => {
     try {
@@ -103,7 +103,7 @@ export function withErrorHandling(
  */
 export async function parseAndValidateRequest<T>(
   request: Request,
-  schema: any
+  schema: any,
 ): Promise<T> {
   try {
     const body = await request.json();
@@ -129,8 +129,7 @@ export const HttpErrors = {
   unauthorized: () =>
     new AppError(401, "Unauthorized", ErrorCodes.INTERNAL_ERROR),
 
-  forbidden: () =>
-    new AppError(403, "Forbidden", ErrorCodes.INTERNAL_ERROR),
+  forbidden: () => new AppError(403, "Forbidden", ErrorCodes.INTERNAL_ERROR),
 
   conflict: (message: string) =>
     new AppError(409, message, ErrorCodes.DUPLICATE_ENTRY),

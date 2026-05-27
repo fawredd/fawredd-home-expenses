@@ -11,7 +11,7 @@ import { eq } from "drizzle-orm";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { documentId: string } }
+  { params }: { params: { documentId: string } },
 ) {
   try {
     const { documentId } = params;
@@ -46,7 +46,7 @@ export async function GET(
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { documentId: string } }
+  { params }: { params: { documentId: string } },
 ) {
   try {
     const { documentId } = params;
@@ -61,7 +61,10 @@ export async function DELETE(
     }
 
     // TODO: Verify document is not in processing state
-    if (doc.processingStatus === "extracting" || doc.processingStatus === "categorizing") {
+    if (
+      doc.processingStatus === "extracting" ||
+      doc.processingStatus === "categorizing"
+    ) {
       throw new Error("No se puede eliminar un documento en procesamiento");
     }
 

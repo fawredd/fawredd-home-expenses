@@ -15,13 +15,13 @@ export async function GET(request: NextRequest) {
 
     const result = await getCategoryBreakdown(
       startDate ? new Date(startDate) : undefined,
-      endDate ? new Date(endDate) : undefined
+      endDate ? new Date(endDate) : undefined,
     );
 
     // Calculate total for percentages
     const total = result.reduce(
       (sum, item) => sum + parseFloat(item.totalAmount || "0"),
-      0
+      0,
     );
 
     const breakdown = result.map((item) => ({
@@ -29,7 +29,10 @@ export async function GET(request: NextRequest) {
       categoryName: item.categoryName,
       parentCategory: item.parentCategory,
       totalAmount: parseFloat(item.totalAmount || "0"),
-      percentageOfTotal: total > 0 ? ((parseFloat(item.totalAmount || "0") / total) * 100).toFixed(1) : "0",
+      percentageOfTotal:
+        total > 0
+          ? ((parseFloat(item.totalAmount || "0") / total) * 100).toFixed(1)
+          : "0",
       movementCount: item.movementCount,
       color: item.color,
     }));

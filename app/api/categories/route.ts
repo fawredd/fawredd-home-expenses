@@ -12,7 +12,8 @@ export async function GET(request: NextRequest) {
   try {
     Logger.info("Fetching all categories");
 
-    const includeInactive = request.nextUrl.searchParams.get("includeInactive") === "true";
+    const includeInactive =
+      request.nextUrl.searchParams.get("includeInactive") === "true";
 
     const allCategories = await db
       .select()

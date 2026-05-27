@@ -11,7 +11,7 @@ import { eq } from "drizzle-orm";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { movementId: string } }
+  { params }: { params: { movementId: string } },
 ) {
   try {
     const { movementId } = params;
@@ -48,14 +48,16 @@ export async function GET(
  */
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { movementId: string } }
+  { params }: { params: { movementId: string } },
 ) {
   try {
     const { movementId } = params;
     const body = await request.json();
     const { categoryId, reason } = body;
 
-    Logger.info(`Updating category for movement: ${movementId}`, { categoryId });
+    Logger.info(`Updating category for movement: ${movementId}`, {
+      categoryId,
+    });
 
     // TODO: Validate categoryId exists
     // TODO: Update movement category

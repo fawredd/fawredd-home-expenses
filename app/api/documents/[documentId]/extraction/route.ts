@@ -11,7 +11,7 @@ import { eq } from "drizzle-orm";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { documentId: string } }
+  { params }: { params: { documentId: string } },
 ) {
   try {
     const { documentId } = params;
@@ -52,7 +52,7 @@ export async function GET(
  */
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { documentId: string } }
+  { params }: { params: { documentId: string } },
 ) {
   try {
     const { documentId } = params;
@@ -88,7 +88,7 @@ export async function PUT(
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { documentId: string } }
+  { params }: { params: { documentId: string } },
 ) {
   try {
     const { documentId } = params;
@@ -103,7 +103,7 @@ export async function POST(
     return successResponse(
       { jobId: "todo-job-id", status: "processing" },
       202,
-      "Document queued for reprocessing"
+      "Document queued for reprocessing",
     );
   } catch (error) {
     Logger.error("Failed to reprocess document", error);

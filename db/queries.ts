@@ -36,18 +36,20 @@ export async function getDashboardMovements({
   const conditions = [];
 
   if (startDate)
-    conditions.push(gte(movements.transactionDate, startDate.toISOString().split("T")[0]));
+    conditions.push(
+      gte(movements.transactionDate, startDate.toISOString().split("T")[0]),
+    );
   if (endDate)
-    conditions.push(lte(movements.transactionDate, endDate.toISOString().split("T")[0]));
+    conditions.push(
+      lte(movements.transactionDate, endDate.toISOString().split("T")[0]),
+    );
 
   if (categoryIds && categoryIds.length > 0) {
     conditions.push(inArray(movements.categoryId, categoryIds));
   }
 
   if (vendorSearch) {
-    conditions.push(
-      sql`${movements.vendorName} ILIKE ${`%${vendorSearch}%`}`
-    );
+    conditions.push(sql`${movements.vendorName} ILIKE ${`%${vendorSearch}%`}`);
   }
 
   if (minAmount !== undefined)
@@ -66,14 +68,19 @@ export async function getDashboardMovements({
       orderBy = sortOrder === "asc" ? movements.amount : desc(movements.amount);
       break;
     case "vendor":
-      orderBy = sortOrder === "asc" ? movements.vendorName : desc(movements.vendorName);
+      orderBy =
+        sortOrder === "asc" ? movements.vendorName : desc(movements.vendorName);
       break;
     case "category":
-      orderBy = sortOrder === "asc" ? movements.categoryId : desc(movements.categoryId);
+      orderBy =
+        sortOrder === "asc" ? movements.categoryId : desc(movements.categoryId);
       break;
     case "date":
     default:
-      orderBy = sortOrder === "asc" ? movements.transactionDate : desc(movements.transactionDate);
+      orderBy =
+        sortOrder === "asc"
+          ? movements.transactionDate
+          : desc(movements.transactionDate);
   }
 
   const query = db
@@ -103,10 +110,7 @@ export async function getDashboardMovements({
     .from(movements)
     .where(conditions.length > 0 ? and(...conditions) : undefined);
 
-  const result = await query
-    .orderBy(orderBy)
-    .limit(limit)
-    .offset(offset);
+  const result = await query.orderBy(orderBy).limit(limit).offset(offset);
 
   return {
     movements: result,
@@ -140,9 +144,13 @@ export async function getMonthlySummary(year?: number) {
 export async function getCategoryBreakdown(startDate?: Date, endDate?: Date) {
   const conditions = [];
   if (startDate)
-    conditions.push(gte(movements.transactionDate, startDate.toISOString().split("T")[0]));
+    conditions.push(
+      gte(movements.transactionDate, startDate.toISOString().split("T")[0]),
+    );
   if (endDate)
-    conditions.push(lte(movements.transactionDate, endDate.toISOString().split("T")[0]));
+    conditions.push(
+      lte(movements.transactionDate, endDate.toISOString().split("T")[0]),
+    );
 
   const result = await db
     .select({
@@ -156,7 +164,12 @@ export async function getCategoryBreakdown(startDate?: Date, endDate?: Date) {
     .from(movements)
     .innerJoin(categories, sql`${movements.categoryId} = ${categories.id}`)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .groupBy(categories.id, categories.name, categories.parentId, categories.color)
+    .groupBy(
+      categories.id,
+      categories.name,
+      categories.parentId,
+      categories.color,
+    )
     .orderBy(desc(sql`SUM(${movements.amount})`));
 
   return result;
@@ -169,7 +182,9 @@ export async function countUncategorized() {
   const result = await db
     .select({ count: sql<number>`count(*)` })
     .from(movements)
-    .where(sql`${movements.categoryId} IS NULL OR ${movements.categoryId} = ''`);
+    .where(
+      sql`${movements.categoryId} IS NULL OR ${movements.categoryId} = ''`,
+    );
 
   return result[0]?.count || 0;
 }

@@ -62,7 +62,9 @@ export const documents = pgTable(
     fileSize: integer("file_size").notNull(),
     mimeType: varchar("mime_type", { length: 50 }).notNull(),
     filePath: text("file_path").notNull(),
-    uploadStatus: uploadStatusEnum("upload_status").notNull().default("uploaded"),
+    uploadStatus: uploadStatusEnum("upload_status")
+      .notNull()
+      .default("uploaded"),
     processingStatus: processingStatusEnum("processing_status")
       .notNull()
       .default("pending"),
@@ -79,12 +81,14 @@ export const documents = pgTable(
   (table) => {
     return {
       uploadedAtIdx: index("idx_documents_uploaded_at").on(
-        sql`${table.uploadedAt} DESC`
+        sql`${table.uploadedAt} DESC`,
       ),
-      uploadStatusIdx: index("idx_documents_upload_status").on(table.uploadStatus),
+      uploadStatusIdx: index("idx_documents_upload_status").on(
+        table.uploadStatus,
+      ),
       userIdIdx: index("idx_documents_user_id").on(table.userId),
     };
-  }
+  },
 );
 
 /**
@@ -104,7 +108,9 @@ export const extractions = pgTable(
     extractedVendor: varchar("extracted_vendor", { length: 255 }),
     extractedDocumentType: varchar("extracted_document_type", { length: 50 }),
     extractedDescription: text("extracted_description"),
-    confidenceScores: jsonb("confidence_scores").notNull().default(sql`'{}'`),
+    confidenceScores: jsonb("confidence_scores")
+      .notNull()
+      .default(sql`'{}'`),
     overallConfidence: decimal("overall_confidence", {
       precision: 3,
       scale: 2,
@@ -120,10 +126,10 @@ export const extractions = pgTable(
     return {
       documentIdIdx: index("idx_extractions_document_id").on(table.documentId),
       overallConfidenceIdx: index("idx_extractions_overall_confidence").on(
-        sql`${table.overallConfidence} DESC`
+        sql`${table.overallConfidence} DESC`,
       ),
     };
-  }
+  },
 );
 
 /**
@@ -153,7 +159,7 @@ export const categories = pgTable(
       parentIdIdx: index("idx_categories_parent_id").on(table.parentId),
       isActiveIdx: index("idx_categories_is_active").on(table.isActive),
     };
-  }
+  },
 );
 
 /**
@@ -184,11 +190,13 @@ export const movements = pgTable(
     }),
     categorizationMethod: categorizationMethodEnum("categorization_method"),
     isReviewed: boolean("is_reviewed").notNull().default(false),
-    isManualCorrection: boolean("is_manual_correction").notNull().default(false),
+    isManualCorrection: boolean("is_manual_correction")
+      .notNull()
+      .default(false),
     correctedAt: timestamp("corrected_at"),
     correctedCategoryId: uuid("corrected_category_id").references(
       () => categories.id,
-      { onDelete: "set null" }
+      { onDelete: "set null" },
     ),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at")
@@ -199,19 +207,19 @@ export const movements = pgTable(
   (table) => {
     return {
       transactionDateIdx: index("idx_movements_transaction_date").on(
-        sql`${table.transactionDate} DESC`
+        sql`${table.transactionDate} DESC`,
       ),
       categoryIdIdx: index("idx_movements_category_id").on(table.categoryId),
       vendorNameIdx: index("idx_movements_vendor_name").on(table.vendorName),
       movementTypeIdx: index("idx_movements_movement_type").on(
-        table.movementType
+        table.movementType,
       ),
       isReviewedIdx: index("idx_movements_is_reviewed").on(table.isReviewed),
       dateAndCategoryIdx: index("idx_movements_date_category").on(
-        sql`DATE_TRUNC('month', ${table.transactionDate}), ${table.categoryId}`
+        sql`DATE_TRUNC('month', ${table.transactionDate}), ${table.categoryId}`,
       ),
     };
-  }
+  },
 );
 
 /**
@@ -236,7 +244,7 @@ export const ragEmbeddings = pgTable(
     return {
       vendorNameIdx: index("idx_rag_embeddings_vendor").on(table.vendorName),
     };
-  }
+  },
 );
 
 /**
@@ -262,13 +270,13 @@ export const userCorrections = pgTable(
   (table) => {
     return {
       movementIdIdx: index("idx_user_corrections_movement_id").on(
-        table.movementId
+        table.movementId,
       ),
       correctedAtIdx: index("idx_user_corrections_corrected_at").on(
-        table.correctedAt
+        table.correctedAt,
       ),
     };
-  }
+  },
 );
 
 /**
@@ -300,12 +308,14 @@ export const processingJobs = pgTable(
   (table) => {
     return {
       jobStatusIdx: index("idx_processing_jobs_status").on(table.jobStatus),
-      documentIdIdx: index("idx_processing_jobs_document_id").on(table.documentId),
+      documentIdIdx: index("idx_processing_jobs_document_id").on(
+        table.documentId,
+      ),
       createdAtIdx: index("idx_processing_jobs_created_at").on(
-        sql`${table.createdAt} DESC`
+        sql`${table.createdAt} DESC`,
       ),
     };
-  }
+  },
 );
 
 /**

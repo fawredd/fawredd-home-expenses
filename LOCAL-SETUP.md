@@ -84,6 +84,7 @@ copy .env.example .env.development.local
 ```
 
 Edit `.env.development.local`:
+
 ```env
 # Database Configuration
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/fawredd_local
@@ -186,6 +187,7 @@ Error: connect ECONNREFUSED 127.0.0.1:5432
 ```
 
 **Solution:**
+
 - Ensure PostgreSQL is running
 - Windows: Check Services → PostgreSQL Server
 - Check DATABASE_URL in `.env.development.local`
@@ -198,6 +200,7 @@ Error: extension "vector" does not exist
 ```
 
 **Solution:**
+
 ```bash
 # Connect to database and create extension
 psql -U postgres -d fawredd_local
@@ -212,6 +215,7 @@ Error: not enough privileges
 ```
 
 **Solution:**
+
 - Ensure you're connecting as `postgres` user (has permission to create tables)
 - Check DATABASE_URL has correct credentials
 
@@ -222,6 +226,7 @@ Error: listen EADDRINUSE: address already in use :::3000
 ```
 
 **Solution:**
+
 ```bash
 # Kill process using port 3000
 # On Windows CMD:
@@ -318,6 +323,7 @@ pnpm db:studio      # Visual inspection of database
 ## Support
 
 For issues or questions:
+
 1. Check the troubleshooting section above
 2. Review `.agents/artifacts/requirement-docs/` for specifications
 3. Check Drizzle ORM docs: https://orm.drizzle.team/

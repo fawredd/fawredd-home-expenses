@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
       // Validate file type
       if (!ALLOWED_MIME_TYPES.includes(file.type)) {
         throw new Error(
-          `Invalid file type: ${file.name}. Solo se aceptan PDF, JPG, PNG`
+          `Invalid file type: ${file.name}. Solo se aceptan PDF, JPG, PNG`,
         );
       }
 
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
     return successResponse(
       { documents: uploadedDocuments },
       201,
-      "Documentos subidos correctamente"
+      "Documentos subidos correctamente",
     );
   } catch (error) {
     Logger.error("Document upload failed", error);
