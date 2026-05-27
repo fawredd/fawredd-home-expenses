@@ -1,0 +1,269 @@
+openapi: 3.0.0
+info:
+  title: Categorization API
+  description: Endpoints for automatic and manual categorization of financial movements
+  version: 1.0.0
+  contact:
+    name: Technical BA
+
+servers:
+  - url: http://localhost:3000/api
+    description: Local development
+
+paths:
+  /movements/{movementId}/category:
+    get:
+      operationId: getMovementCategory
+      tags:
+        - Categorization
+      summary: Get current category and confidence for a movement
+      parameters:
+        - name: movementId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Movement category
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MovementCategory"
+        "404":
+          description: Movement not found
+
+    put:
+      operationId: updateMovementCategory
+      tags:
+        - Categorization
+      summary: Manually assign or correct movement category
+      parameters:
+        - name: movementId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCategoryRequest"
+      responses:
+        "200":
+          description: Category updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MovementCategory"
+        "400":
+          description: Invalid category or input
+        "404":
+          description: Movement or category not found
+
+  /categories:
+    get:
+      operationId: listCategories
+      tags:
+        - Categories
+      summary: List all available categories
+      parameters:
+        - name: includeInactive
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: List of categories
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  categories:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Category"
+
+  /movements/categorize-batch:
+    post:
+      operationId: categorizeBatch
+      tags:
+        - Categorization
+      summary: Re-categorize multiple movements
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                movementIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                force:
+                  type: boolean
+                  default: false
+                  description: Force re-categorization even if already categorized
+      responses:
+        "202":
+          description: Batch categorization job queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId:
+                    type: string
+                    format: uuid
+                  movementCount:
+                    type: integer
+                  status:
+                    type: string
+                    example: "processing"
+
+  /movements/uncategorized:
+    get:
+      operationId: getUncategorized
+      tags:
+        - Categorization
+      summary: Get movements requiring manual categorization
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Uncategorized movements
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  movements:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UncategorizedMovement"
+
+components:
+  schemas:
+    MovementCategory:
+      type: object
+      properties:
+        movementId:
+          type: string
+          format: uuid
+        categoryId:
+          type: string
+          format: uuid
+        categoryName:
+          type: string
+          example: "Groceries"
+        confidence:
+          type: number
+          format: decimal
+          example: 0.87
+        method:
+          type: string
+          enum: [rule, rag, ai, manual]
+          example: "rag"
+        isManualCorrection:
+          type: boolean
+          example: false
+        lastReviewedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    UpdateCategoryRequest:
+      type: object
+      properties:
+        categoryId:
+          type: string
+          format: uuid
+          description: UUID of the category to assign
+        reason:
+          type: string
+          description: Optional reason for correction (for audit)
+      required:
+        - categoryId
+
+    Category:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: "Groceries"
+        description:
+          type: string
+          nullable: true
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        color:
+          type: string
+          example: "#FFA726"
+        icon:
+          type: string
+          nullable: true
+          example: "shopping-cart"
+        isActive:
+          type: boolean
+          example: true
+        movementCount:
+          type: integer
+          description: Number of movements in this category
+          nullable: true
+
+    UncategorizedMovement:
+      type: object
+      properties:
+        movementId:
+          type: string
+          format: uuid
+        documentId:
+          type: string
+          format: uuid
+        transactionDate:
+          type: string
+          format: date
+        vendor:
+          type: string
+        amount:
+          type: number
+          format: decimal
+        currency:
+          type: string
+        description:
+          type: string
+          nullable: true
+        confidenceScore:
+          type: number
+          format: decimal
+          nullable: true
+        suggestedCategory:
+          $ref: "#/components/schemas/Category"
+          nullable: true
+        suggestedConfidence:
+          type: number
+          format: decimal
+          nullable: true

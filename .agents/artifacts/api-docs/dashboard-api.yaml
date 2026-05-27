@@ -1,0 +1,397 @@
+openapi: 3.0.0
+info:
+  title: Financial Dashboard API
+  description: Endpoints for dashboard data, summaries, and analytics
+  version: 1.0.0
+  contact:
+    name: Technical BA
+
+servers:
+  - url: http://localhost:3000/api
+    description: Local development
+
+paths:
+  /dashboard/movements:
+    get:
+      operationId: getDashboardMovements
+      tags:
+        - Dashboard
+      summary: Get filtered list of movements for dashboard table
+      parameters:
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Filter from date (inclusive)
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Filter to date (inclusive)
+        - name: categoryIds
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              format: uuid
+          description: Filter by one or more categories
+        - name: vendorSearch
+          in: query
+          schema:
+            type: string
+          description: Filter by vendor name (partial match)
+        - name: minAmount
+          in: query
+          schema:
+            type: number
+            format: decimal
+        - name: maxAmount
+          in: query
+          schema:
+            type: number
+            format: decimal
+        - name: movementType
+          in: query
+          schema:
+            type: string
+            enum: [income, expense, all]
+            default: all
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [date, amount, vendor, category]
+            default: date
+        - name: sortOrder
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Paginated movement list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MovementListResponse"
+
+  /dashboard/monthly-summary:
+    get:
+      operationId: getMonthlySummary
+      tags:
+        - Dashboard
+      summary: Get monthly income, expense, and balance summary
+      parameters:
+        - name: year
+          in: query
+          schema:
+            type: integer
+            description: Filter by year (optional)
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 24
+            description: Number of months to return (default last 24)
+      responses:
+        "200":
+          description: Monthly summary data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MonthlySummary"
+
+  /dashboard/annual-summary:
+    get:
+      operationId: getAnnualSummary
+      tags:
+        - Dashboard
+      summary: Get annual income, expense, and balance summary
+      responses:
+        "200":
+          description: Annual summary data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AnnualSummary"
+
+  /dashboard/category-breakdown:
+    get:
+      operationId: getCategoryBreakdown
+      tags:
+        - Dashboard
+      summary: Get spending by category with percentages
+      parameters:
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: includeIncome
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Category breakdown
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  breakdown:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CategoryBreakdown"
+
+  /dashboard/metrics:
+    get:
+      operationId: getDashboardMetrics
+      tags:
+        - Dashboard
+      summary: Get key financial metrics
+      parameters:
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Key metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardMetrics"
+
+  /dashboard/uncategorized-count:
+    get:
+      operationId: getUncategorizedCount
+      tags:
+        - Dashboard
+      summary: Get count of movements awaiting categorization
+      responses:
+        "200":
+          description: Count of uncategorized movements
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uncategorizedCount:
+                    type: integer
+                    example: 5
+
+components:
+  schemas:
+    MovementListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        movements:
+          type: array
+          items:
+            $ref: "#/components/schemas/MovementItem"
+
+    MovementItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        transactionDate:
+          type: string
+          format: date
+          example: "2026-05-26"
+        vendor:
+          type: string
+          example: "Carrefour"
+        amount:
+          type: number
+          format: decimal
+          example: 1500.50
+        currency:
+          type: string
+          example: "ARS"
+        category:
+          type: string
+          example: "Groceries"
+        categoryColor:
+          type: string
+          example: "#FFA726"
+        movementType:
+          type: string
+          enum: [income, expense]
+        confidence:
+          type: number
+          format: decimal
+          example: 0.95
+        isReviewed:
+          type: boolean
+        description:
+          type: string
+          nullable: true
+
+    MonthlySummary:
+      type: object
+      properties:
+        yearMonth:
+          type: string
+          format: date
+          description: First day of month
+          example: "2026-05-01"
+        month:
+          type: integer
+          example: 5
+        year:
+          type: integer
+          example: 2026
+        totalIncome:
+          type: number
+          format: decimal
+          example: 50000.00
+        totalExpenses:
+          type: number
+          format: decimal
+          example: 35000.00
+        balance:
+          type: number
+          format: decimal
+          example: 15000.00
+        movementCount:
+          type: integer
+        changePercent:
+          type: number
+          format: decimal
+          nullable: true
+          description: Month-over-month change %
+          example: 5.5
+
+    AnnualSummary:
+      type: object
+      properties:
+        year:
+          type: integer
+          example: 2026
+        totalIncome:
+          type: number
+          format: decimal
+          example: 600000.00
+        totalExpenses:
+          type: number
+          format: decimal
+          example: 420000.00
+        balance:
+          type: number
+          format: decimal
+          example: 180000.00
+        movementCount:
+          type: integer
+          example: 500
+
+    CategoryBreakdown:
+      type: object
+      properties:
+        categoryId:
+          type: string
+          format: uuid
+        categoryName:
+          type: string
+          example: "Groceries"
+        parentCategory:
+          type: string
+          nullable: true
+          example: "Expenses"
+        totalAmount:
+          type: number
+          format: decimal
+          example: 12000.00
+        percentageOfTotal:
+          type: number
+          format: decimal
+          example: 34.3
+        movementCount:
+          type: integer
+          example: 45
+        color:
+          type: string
+          example: "#FFA726"
+
+    DashboardMetrics:
+      type: object
+      properties:
+        totalIncome:
+          type: number
+          format: decimal
+          example: 50000.00
+        totalExpenses:
+          type: number
+          format: decimal
+          example: 35000.00
+        balance:
+          type: number
+          format: decimal
+          example: 15000.00
+        movementCount:
+          type: integer
+          example: 150
+        documentCount:
+          type: integer
+          example: 120
+        categorizedPercent:
+          type: number
+          format: decimal
+          example: 95.3
+        averageConfidence:
+          type: number
+          format: decimal
+          example: 0.87
+        dateRange:
+          type: object
+          properties:
+            startDate:
+              type: string
+              format: date
+            endDate:
+              type: string
+              format: date

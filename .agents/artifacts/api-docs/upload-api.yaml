@@ -1,0 +1,177 @@
+openapi: 3.0.0
+info:
+  title: Document Upload API
+  description: Endpoints for uploading and managing financial documents
+  version: 1.0.0
+  contact:
+    name: Technical BA
+    email: ba@fawredd.local
+
+servers:
+  - url: http://localhost:3000/api
+    description: Local development
+
+paths:
+  /documents/upload:
+    post:
+      operationId: uploadDocuments
+      tags:
+        - Documents
+      summary: Upload one or multiple financial documents
+      description: |
+        Accepts file uploads (PDF, JPG, PNG) via multipart/form-data.
+        Each file is validated and queued for processing.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: One or more document files
+              required:
+                - files
+      responses:
+        "201":
+          description: Files accepted for upload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  documents:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DocumentResponse"
+        "400":
+          description: Invalid file type or size
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: File too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Server error during upload
+
+  /documents/{documentId}/status:
+    get:
+      operationId: getDocumentStatus
+      tags:
+        - Documents
+      summary: Get current upload and processing status
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Document status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentStatus"
+        "404":
+          description: Document not found
+
+  /documents/{documentId}:
+    delete:
+      operationId: deleteDocument
+      tags:
+        - Documents
+      summary: Delete/cancel a document
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Document deleted
+        "404":
+          description: Document not found
+        "409":
+          description: Cannot delete document in processing state
+
+components:
+  schemas:
+    DocumentResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        filename:
+          type: string
+          example: "Receipt_2026-05-24.pdf"
+        fileSize:
+          type: integer
+          example: 245000
+        mimeType:
+          type: string
+          example: "application/pdf"
+        uploadStatus:
+          type: string
+          enum: [uploaded, processing, completed, failed]
+          example: "uploaded"
+        uploadedAt:
+          type: string
+          format: date-time
+          example: "2026-05-26T14:30:00Z"
+
+    DocumentStatus:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        uploadStatus:
+          type: string
+          enum: [uploaded, processing, completed, failed]
+        processingStatus:
+          type: string
+          enum: [pending, extracting, categorizing, done, error]
+        uploadedAt:
+          type: string
+          format: date-time
+        processedAt:
+          type: string
+          format: date-time
+          nullable: true
+        errorMessage:
+          type: string
+          nullable: true
+          example: "OCR failed: unreadable PDF"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Invalid file type"
+        message:
+          type: string
+          example: "Solo se aceptan PDF, JPG, PNG"
+        timestamp:
+          type: string
+          format: date-time

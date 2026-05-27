@@ -1,0 +1,208 @@
+openapi: 3.0.0
+info:
+  title: Document Extraction API
+  description: Endpoints for OCR, parsing, and extraction of financial document data
+  version: 1.0.0
+  contact:
+    name: Technical BA
+
+servers:
+  - url: http://localhost:3000/api
+    description: Local development
+
+paths:
+  /documents/{documentId}/extraction:
+    get:
+      operationId: getExtraction
+      tags:
+        - Extraction
+      summary: Get extraction results for a document
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Extraction results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtractionResult"
+        "404":
+          description: Document or extraction not found
+
+    put:
+      operationId: updateExtraction
+      tags:
+        - Extraction
+      summary: Manually update extraction results
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateExtractionRequest"
+      responses:
+        "200":
+          description: Extraction updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtractionResult"
+        "400":
+          description: Invalid input
+        "404":
+          description: Document not found
+
+  /documents/{documentId}/reprocess:
+    post:
+      operationId: reprocessDocument
+      tags:
+        - Extraction
+      summary: Rerun extraction pipeline on a document
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                forceOCR:
+                  type: boolean
+                  description: Force OCR even if PDF is already text
+                  default: false
+      responses:
+        "202":
+          description: Reprocessing job queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    example: "processing"
+        "404":
+          description: Document not found
+
+components:
+  schemas:
+    ExtractionResult:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        documentId:
+          type: string
+          format: uuid
+        rawOcrText:
+          type: string
+          nullable: true
+          description: Raw OCR output
+        extractedDate:
+          type: string
+          format: date
+          nullable: true
+          example: "2026-05-26"
+        extractedAmount:
+          type: number
+          format: decimal
+          nullable: true
+          example: 1500.50
+        extractedCurrency:
+          type: string
+          nullable: true
+          example: "ARS"
+        extractedVendor:
+          type: string
+          nullable: true
+          example: "Carrefour"
+        extractedDocumentType:
+          type: string
+          nullable: true
+          enum: [receipt, invoice, statement, ticket, other]
+          example: "receipt"
+        extractedDescription:
+          type: string
+          nullable: true
+          example: "Compra de alimentos"
+        confidenceScores:
+          $ref: "#/components/schemas/ConfidenceScores"
+        overallConfidence:
+          type: number
+          format: decimal
+          example: 0.87
+        extractionMethod:
+          type: string
+          enum: [ocr, manual, api]
+          example: "ocr"
+        extractedAt:
+          type: string
+          format: date-time
+
+    ConfidenceScores:
+      type: object
+      properties:
+        dateConfidence:
+          type: number
+          format: decimal
+          example: 0.95
+        amountConfidence:
+          type: number
+          format: decimal
+          example: 0.92
+        currencyConfidence:
+          type: number
+          format: decimal
+          example: 0.88
+        vendorConfidence:
+          type: number
+          format: decimal
+          example: 0.85
+        typeConfidence:
+          type: number
+          format: decimal
+          example: 0.80
+
+    UpdateExtractionRequest:
+      type: object
+      properties:
+        extractedDate:
+          type: string
+          format: date
+        extractedAmount:
+          type: number
+          format: decimal
+        extractedCurrency:
+          type: string
+        extractedVendor:
+          type: string
+        extractedDocumentType:
+          type: string
+          enum: [receipt, invoice, statement, ticket, other]
+        extractedDescription:
+          type: string
+      required:
+        - extractedDate
+        - extractedAmount
+        - extractedCurrency
