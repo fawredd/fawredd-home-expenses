@@ -45,6 +45,19 @@ Before writing any code for a task, verify:
 
 ---
 
+## TypeScript Enforcement
+
+- NEVER introduce `any`
+- Prefer `unknown` + narrowing
+- Always infer types from Zod schemas
+- Never duplicate DTO types manually
+- All database operations must return strongly typed results
+- All API handlers must expose typed request/response contracts
+- Never silence TypeScript errors
+- Never use unsafe casting
+
+---
+
 ## API Compliance
 
 - Implement **only** the endpoints defined in the Swagger contract for the current task.

@@ -136,27 +136,71 @@ If ANY doubt exists → DO NOT mark DONE.
 
 ## Model Routing
 
-Route each task to the correct model based on environment and complexity.
+Route tasks using BOTH:
+- task complexity
+- agent specialization
 
-### VSCode environment (Claude)
+Prefer local Ollama models whenever cloud quota is exhausted.
 
-| Complexity | Model |
-|------------|-------|
-| Low | `claude-haiku-4-5` |
-| Medium | `claude-sonnet-4-6` |
-| High | `claude-sonnet-4-6` |
-| Critical (security/infra) | `claude-sonnet-4-6` |
-| Extreme reasoning | `claude-opus-4-6` |
+### Ollama Local Models
 
-### Antigravity environment (Gemini)
+| Model Alias | Runtime |
+|---|---|
+| `local-reasoner` | `qwen2.5-coder:3b` |
+| `local-coder` | `qwen2.5-coder:3b` |
+| `local-fast` | `phi4:mini` | `qwen2.5-coder:3b` |
 
-| Complexity | Model |
-|------------|-------|
-| Low | `gemini-3.5-flash-lite` |
-| Medium | `gemini-3.5-flash` |
-| High | `gemini-3.5-pro` |
-| Critical (security/infra) | `gemini-3.5-flash` |
-| Extreme reasoning | `gemini-3.5-pro-deep-think` |
+## Routing by Agent Role
+
+| Agent | Preferred Model | Fallback |
+|---|---|---|
+| Project Manager | `local-reasoner` | `claude-sonnet-4-6` |
+| Technical BA | `local-reasoner` | `claude-sonnet-4-6` |
+| Security Engineer | `claude-sonnet-4-6` | `local-reasoner` |
+| Frontend Dev | `local-coder` | `claude-sonnet-4-6` |
+| Backend Dev | `local-coder` | `claude-sonnet-4-6` |
+| Infrastructure Engineer | `local-coder` | `claude-sonnet-4-6` |
+| CI Engineer | `local-fast` | `local-coder` |
+| QA Engineer | `local-reasoner` | `claude-sonnet-4-6` |
+
+## Routing by Complexity
+
+| Complexity | Preferred Model |
+|---|---|
+| Low | `local-fast` |
+| Medium | `local-coder` |
+| High | `local-reasoner` |
+| Critical | `claude-sonnet-4-6` |
+| Extreme Reasoning | `claude-sonnet-4-6` |
+
+## Model Selection Rules
+
+- Prefer `local-coder` for implementation tasks.
+- Prefer `local-reasoner` for planning, orchestration, triage, architecture, and QA analysis.
+- Prefer `local-fast` for lightweight validation, formatting, summaries, and repetitive tasks.
+- Use Claude only when:
+  - local models fail
+  - reasoning quality becomes insufficient
+  - security review is high risk
+  - context size exceeds local model capability
+
+## Token Efficiency Rules
+
+Local models are CPU-bound and context-sensitive.
+
+Agents MUST:
+- avoid large conversation history
+- summarize prior outputs before handoff
+- avoid re-reading unrelated artifacts
+- use compact structured outputs
+- prefer references over full content duplication
+
+Maximum recommended context:
+- `local-fast`: 4k
+- `local-coder`: 8k
+- `local-reasoner`: 8k
+
+Never attach full backlog or STATE history unless required.
 
 **Complexity definitions:**
 - **Low** — single-file changes, copy edits, minor config
@@ -188,6 +232,7 @@ If blocked → escalate, don't guess.
 - ❌ Letting agents continue while blocked
 - ❌ Marking DONE without QA validation
 - ❌ Running multiple tasks in one chat
+- ❌ Creating files outside the artifact locations defined in `agile-process.md`
 
 ---
 
@@ -217,7 +262,11 @@ You are not a passive coordinator. You are responsible for delivery.
 ---
 
 ## Execution Loop
-
+0. **First session only — Project Initialization**
+   Verify the following files exist. If not, create them before anything else:
+   - `agents-backlog.md` — initialize with empty backlog structure
+   - `.agents/artifacts/STATE.md` — initialize with project name and date
+   No task may be assigned until both files exist.
 1. Read `agents-stakeholders-inputs.md` (start of every session)
 2. Review backlog — identify next priority task
 3. Assign to correct agent in a new chat with full context

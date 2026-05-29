@@ -8,13 +8,14 @@ import { HttpErrors } from "@/lib/api-utils";
 import { db } from "@/db";
 import { documents } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { deleteFile } from "@/lib/file-utils";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { documentId: string } },
+  { params }: { params: Promise<{ documentId: string }> },
 ) {
   try {
-    const { documentId } = params;
+    const { documentId } = await params;
     Logger.info(`Fetching document status: ${documentId}`);
 
     const doc = await db.query.documents.findFirst({
@@ -28,6 +29,8 @@ export async function GET(
     return successResponse({
       id: doc.id,
       filename: doc.filename,
+      fileSize: doc.fileSize,
+      mimeType: doc.mimeType,
       uploadStatus: doc.uploadStatus,
       processingStatus: doc.processingStatus,
       uploadedAt: doc.uploadedAt,
@@ -46,10 +49,10 @@ export async function GET(
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { documentId: string } },
+  { params }: { params: Promise<{ documentId: string }> },
 ) {
   try {
-    const { documentId } = params;
+    const { documentId } = await params;
     Logger.info(`Deleting document: ${documentId}`);
 
     const doc = await db.query.documents.findFirst({
@@ -60,18 +63,31 @@ export async function DELETE(
       throw HttpErrors.notFound("Documento");
     }
 
-    // TODO: Verify document is not in processing state
+    // Prevent deletion of documents in processing state
     if (
+      doc.processingStatus === "processing" ||
       doc.processingStatus === "extracting" ||
       doc.processingStatus === "categorizing"
     ) {
-      throw new Error("No se puede eliminar un documento en procesamiento");
+      throw HttpErrors.badRequest(
+        "No se puede eliminar un documento en procesamiento",
+      );
     }
 
-    // TODO: Delete file from filesystem
+    // Delete file from filesystem (non-fatal if it fails)
+    if (doc.filePath) {
+      try {
+        await deleteFile(doc.filePath);
+        Logger.info(`File deleted from disk: ${doc.filePath}`);
+      } catch (error) {
+        Logger.warn(`Failed to delete file from disk: ${doc.filePath}`, error);
+      }
+    }
 
-    // Delete document record (cascades to movements, extractions, etc.)
+    // Delete document record (cascades to movements, extractions via ON DELETE CASCADE)
     await db.delete(documents).where(eq(documents.id, documentId));
+
+    Logger.info(`Document deleted: ${documentId}`);
 
     return successResponse(null, 204, "Documento eliminado correctamente");
   } catch (error) {

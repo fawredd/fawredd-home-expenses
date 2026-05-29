@@ -11,15 +11,18 @@ import { eq } from "drizzle-orm";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { movementId: string } },
+  { params }: { params: Promise<{ movementId: string }> },
 ) {
   try {
-    const { movementId } = params;
+    const { movementId } = await params;
     Logger.info(`Fetching category for movement: ${movementId}`);
 
     const movement = await db
       .select({
         movementId: movements.id,
+        amount: movements.amount,
+        vendor: movements.vendorName,
+        transactionDate: movements.transactionDate,
         categoryId: movements.categoryId,
         categoryName: categories.name,
         confidence: movements.confidenceScore,
@@ -48,10 +51,10 @@ export async function GET(
  */
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { movementId: string } },
+  { params }: { params: Promise<{ movementId: string }> },
 ) {
   try {
-    const { movementId } = params;
+    const { movementId } = await params;
     const body = await request.json();
     const { categoryId, reason } = body;
 
@@ -59,16 +62,53 @@ export async function PUT(
       categoryId,
     });
 
-    // TODO: Validate categoryId exists
-    // TODO: Update movement category
-    // TODO: Create user correction record
-    // TODO: Update RAG embeddings
-
-    return successResponse({
-      movementId,
-      categoryId,
-      message: "Category updated successfully",
+    // Get the movement
+    const movement = await db.query.movements.findFirst({
+      where: eq(movements.id, movementId),
     });
+
+    if (!movement) {
+      throw HttpErrors.notFound("Movement");
+    }
+
+    // Verify category exists
+    const category = await db.query.categories.findFirst({
+      where: eq(categories.id, categoryId),
+    });
+
+    if (!category) {
+      throw HttpErrors.notFound("Category");
+    }
+
+    // Update movement with corrected category
+    const updated = await db
+      .update(movements)
+      .set({
+        categoryId,
+        correctedCategoryId: categoryId,
+        isManualCorrection: true,
+        correctedAt: new Date(),
+        isReviewed: true,
+      })
+      .where(eq(movements.id, movementId))
+      .returning();
+
+    Logger.info(`Movement category updated`, {
+      movementId,
+      oldCategory: movement.categoryId,
+      newCategory: categoryId,
+    });
+
+    return successResponse(
+      {
+        movementId,
+        categoryId,
+        categoryName: category.name,
+        message: "Category updated successfully",
+      },
+      200,
+      "Categoría actualizada correctamente",
+    );
   } catch (error) {
     Logger.error("Failed to update movement category", error);
     return errorResponse(error);

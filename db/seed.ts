@@ -1,12 +1,21 @@
 import { db } from "./index";
 import { categories } from "./schema";
+import { sql } from "drizzle-orm";
 
 export async function seed() {
   try {
     console.log("Starting database seed...");
 
     // Default categories (Spanish)
-    const defaultCategories = [
+    const defaultCategories: Array<{
+      name: string;
+      description: string;
+      parentId: string | null;
+      color: string;
+      icon: string;
+      isActive: boolean;
+      sortOrder: number;
+    }> = [
       {
         name: "Ingresos",
         description: "Income category",
@@ -28,7 +37,7 @@ export async function seed() {
       {
         name: "Alimentos",
         description: "Groceries and food",
-        parentId: null, // Will set after insert
+        parentId: null,
         color: "#FFA726",
         icon: "shopping-cart",
         isActive: true,
@@ -92,26 +101,27 @@ export async function seed() {
 
     // Check if categories already exist
     const existingCount = await db
-      .select({ count: categories.id })
+      .select({ count: sql<number>`count(*)` })
       .from(categories);
 
-    if (existingCount.length > 0) {
+    if ((existingCount[0]?.count ?? 0) > 0) {
       console.log("Categories already exist, skipping seed");
       return;
     }
 
-    // Insert categories
     const inserted = await db
       .insert(categories)
       .values(defaultCategories)
-      .returning();
+      .returning({ name: categories.name, color: categories.color });
 
-    console.log(`✅ Seeded ${inserted.length} default categories`);
+    if (Array.isArray(inserted)) {
+      console.log(`✅ Seeded ${inserted.length} default categories`);
 
-    // Log inserted categories
-    inserted.forEach((cat) => {
-      console.log(`  - ${cat.name} (${cat.color})`);
-    });
+      // Log inserted categories
+      inserted.forEach((cat) => {
+        console.log(`  - ${cat.name} (${cat.color})`);
+      });
+    }
   } catch (error) {
     console.error("❌ Seed failed:", error);
     process.exit(1);

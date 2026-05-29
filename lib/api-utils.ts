@@ -64,8 +64,8 @@ export function errorResponse(
  */
 export function validationErrorResponse(
   errors: ZodError,
-): NextResponse<ApiResponse<null>> {
-  const formatted = errors.errors.map((err) => ({
+): NextResponse<ApiResponse<Array<{ field: string; message: string }>>> {
+  const formatted = errors.issues.map((err) => ({
     field: err.path.join("."),
     message: err.message,
   }));
@@ -103,7 +103,7 @@ export function withErrorHandling(
  */
 export async function parseAndValidateRequest<T>(
   request: Request,
-  schema: any,
+  schema: { parse: (data: unknown) => T },
 ): Promise<T> {
   try {
     const body = await request.json();
@@ -145,16 +145,16 @@ export const HttpErrors = {
  * Logging utility
  */
 export const Logger = {
-  info: (message: string, data?: any) => {
+  info: (message: string, data?: unknown) => {
     console.log(`[INFO] ${message}`, data);
   },
-  warn: (message: string, data?: any) => {
+  warn: (message: string, data?: unknown) => {
     console.warn(`[WARN] ${message}`, data);
   },
-  error: (message: string, error?: any) => {
+  error: (message: string, error?: unknown) => {
     console.error(`[ERROR] ${message}`, error);
   },
-  debug: (message: string, data?: any) => {
+  debug: (message: string, data?: unknown) => {
     if (process.env.NODE_ENV === "development") {
       console.debug(`[DEBUG] ${message}`, data);
     }

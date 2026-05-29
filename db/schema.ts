@@ -1,5 +1,6 @@
 import {
-  pgTable,
+  pgSchema,
+  AnyPgColumn,
   uuid,
   varchar,
   integer,
@@ -7,54 +8,49 @@ import {
   text,
   timestamp,
   boolean,
-  enum as pgEnum,
   date,
   jsonb,
   index,
   uniqueIndex,
   foreignKey,
+  customType,
 } from "drizzle-orm/pg-core";
+
 import { sql } from "drizzle-orm";
 
-// Enums
-const uploadStatusEnum = pgEnum("upload_status", [
-  "uploaded",
-  "processing",
-  "completed",
-  "failed",
-]);
+// Enum values as constants (using varchar instead of native enums for MVP)
+const uploadStatusEnum = ["uploaded", "processing", "completed", "failed"] as const;
+const processingStatusEnum = ["pending", "extracting", "categorizing", "done", "error"] as const;
+const movementTypeEnum = ["income", "expense"] as const;
+const jobStatusEnum = ["pending", "processing", "completed", "failed", "retry"] as const;
+const categorizationMethodEnum = ["rule", "rag", "ai", "manual"] as const;
 
-const processingStatusEnum = pgEnum("processing_status", [
-  "pending",
-  "extracting",
-  "categorizing",
-  "done",
-  "error",
-]);
+// Custom pgvector type for embeddings
+const vector = (name: string, dimensions: number) =>
+  customType<{ data: number[]; driverData: string }>({
+    dataType() {
+      return `vector(${dimensions})`;
+    },
+    toDriver(value: number[]): string {
+      return `[${value.join(",")}]`;
+    },
+    fromDriver(value: string): number[] {
+      return value
+        .replace(/[\[\]]/g, "")
+        .split(",")
+        .map(Number);
+    },
+  })(name);
 
-const movementTypeEnum = pgEnum("movement_type", ["income", "expense"]);
 
-const jobStatusEnum = pgEnum("job_status", [
-  "pending",
-  "processing",
-  "completed",
-  "failed",
-  "retry",
-]);
-
-const categorizationMethodEnum = pgEnum("categorization_method", [
-  "rule",
-  "rag",
-  "ai",
-  "manual",
-]);
+export const appSchema = pgSchema("fawredd_home_expenses");
 
 // Tables
 
 /**
  * Documents table - Stores metadata about uploaded files
  */
-export const documents = pgTable(
+export const documents = appSchema.table(
   "documents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -62,10 +58,10 @@ export const documents = pgTable(
     fileSize: integer("file_size").notNull(),
     mimeType: varchar("mime_type", { length: 50 }).notNull(),
     filePath: text("file_path").notNull(),
-    uploadStatus: uploadStatusEnum("upload_status")
+    uploadStatus: varchar("upload_status", { length: 50 })
       .notNull()
       .default("uploaded"),
-    processingStatus: processingStatusEnum("processing_status")
+    processingStatus: varchar("processing_status", { length: 50 })
       .notNull()
       .default("pending"),
     uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
@@ -94,7 +90,7 @@ export const documents = pgTable(
 /**
  * Extractions table - Stores OCR and parsing results
  */
-export const extractions = pgTable(
+export const extractions = appSchema.table(
   "extractions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -135,13 +131,13 @@ export const extractions = pgTable(
 /**
  * Categories table - Hierarchical taxonomy of expense/income categories
  */
-export const categories = pgTable(
+export const categories = appSchema.table(
   "categories",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     name: varchar("name", { length: 100 }).notNull().unique(),
     description: text("description"),
-    parentId: uuid("parent_id").references(() => categories.id, {
+    parentId: uuid("parent_id").references((): AnyPgColumn => categories.id, {
       onDelete: "set null",
     }),
     color: varchar("color", { length: 7 }),
@@ -165,7 +161,7 @@ export const categories = pgTable(
 /**
  * Movements table - Core financial transactions (extracted and categorized)
  */
-export const movements = pgTable(
+export const movements = appSchema.table(
   "movements",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -182,13 +178,13 @@ export const movements = pgTable(
     vendorName: varchar("vendor_name", { length: 255 }),
     amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
     currency: varchar("currency", { length: 3 }).notNull().default("ARS"),
-    movementType: movementTypeEnum("movement_type").notNull(),
+    movementType: varchar("movement_type", { length: 50 }).notNull(),
     description: text("description"),
     confidenceScore: decimal("confidence_score", {
       precision: 3,
       scale: 2,
     }),
-    categorizationMethod: categorizationMethodEnum("categorization_method"),
+    categorizationMethod: varchar("categorization_method", { length: 50 }),
     isReviewed: boolean("is_reviewed").notNull().default(false),
     isManualCorrection: boolean("is_manual_correction")
       .notNull()
@@ -226,7 +222,7 @@ export const movements = pgTable(
  * RAG Embeddings table - Vector store for categorization memory
  * Requires pgvector extension
  */
-export const ragEmbeddings = pgTable(
+export const ragEmbeddings = appSchema.table(
   "rag_embeddings",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -237,7 +233,7 @@ export const ragEmbeddings = pgTable(
     categoryId: uuid("category_id")
       .notNull()
       .references(() => categories.id, { onDelete: "cascade" }),
-    embedding: sql`vector(384)`.notNull(), // Using raw SQL for vector type
+    embedding: vector("embedding", 384).notNull(), // pgvector column
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => {
@@ -250,7 +246,7 @@ export const ragEmbeddings = pgTable(
 /**
  * User Corrections table - Track user feedback for learning and audit
  */
-export const userCorrections = pgTable(
+export const userCorrections = appSchema.table(
   "user_corrections",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -282,7 +278,7 @@ export const userCorrections = pgTable(
 /**
  * Processing Jobs table - Background job tracking (pg-boss integration)
  */
-export const processingJobs = pgTable(
+export const processingJobs = appSchema.table(
   "processing_jobs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -293,7 +289,7 @@ export const processingJobs = pgTable(
       onDelete: "set null",
     }),
     jobType: varchar("job_type", { length: 50 }).notNull(),
-    jobStatus: jobStatusEnum("job_status").notNull().default("pending"),
+    jobStatus: varchar("job_status", { length: 50 }).notNull().default("pending"),
     priority: integer("priority").default(0),
     retryCount: integer("retry_count").default(0),
     errorDetails: jsonb("error_details"),
@@ -321,7 +317,7 @@ export const processingJobs = pgTable(
 /**
  * Sessions table - For future authentication support (Phase 2)
  */
-export const sessions = pgTable("sessions", {
+export const sessions = appSchema.table("sessions", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id").notNull(),
   token: varchar("token", { length: 255 }).notNull().unique(),

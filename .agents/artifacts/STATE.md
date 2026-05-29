@@ -1,259 +1,216 @@
 # PROJECT STATE — Fawredd Home Expenses
 
-**Last Updated:** 2026-05-26
-**Status:** MVP Discovery Phase
+**Last Updated:** 2026-05-29
+**Current Phase:** MVP Phase 1e — CI + QA
+**Next Agent:** CI Engineer → TASK-025
+**Audited:** Yes — PM re-audited 2026-05-29, all Phase 1c routes confirmed complete
 
 ---
 
 ## Project Overview
 
-**Product:** Financial expense management system with automatic document processing and AI-assisted categorization.
+Financial expense management system. Eliminates manual Excel tracking by automating extraction, categorization, and analysis of financial documents. Single-user local deployment for Phase 1.
 
-**Primary Goal:** Eliminate manual Excel-based expense tracking by automating extraction, categorization, and analysis of financial documents.
+**Stack:** Next.js 16, React 19, TypeScript, PostgreSQL, Drizzle ORM, pgvector, Ollama, Redis, pg-boss (deferred), Zod, shadcn/ui, TailwindCSS
 
-**Target Users:** Individuals managing family household finances.
-
----
-
-## Tech Stack
-
-| Component           | Technology                   | Rationale                                            |
-| ------------------- | ---------------------------- | ---------------------------------------------------- |
-| **Framework**       | Next.js 16+                  | SSR, API routes, Server Components, production-grade |
-| **Language**        | TypeScript                   | Strong typing, IDE support, maintainability          |
-| **UI Library**      | React 19                     | Latest features, Server Components compatibility     |
-| **UI Components**   | shadcn/ui                    | Accessible, Tailwind-based, customizable             |
-| **Styling**         | TailwindCSS                  | Utility-first, responsive, dark mode support         |
-| **Validation**      | Zod                          | TypeScript-first, schema validation, API contracts   |
-| **Database**        | PostgreSQL                   | ACID compliance, JSON support, scalability           |
-| **ORM**             | Drizzle ORM                  | Type-safe, lightweight, SQL-first approach           |
-| **Cache/Queue**     | Redis                        | Caching, background job state, session management    |
-| **Background Jobs** | pg-boss                      | Native PostgreSQL, no external service               |
-| **AI**              | AI SDK                       | Unified provider interface, model switching          |
-| **Local AI**        | Ollama                       | Fully local inference, privacy-first, cost-free      |
-| **RAG**             | pgvector + embeddings        | PostgreSQL-native, minimal dependencies              |
-| **Storage**         | Filesystem (Phase 1)         | Local development, simple deployment                 |
-| **OCR**             | Tesseract (via Ollama/local) | Open source, multilingual                            |
+**Repo:** `c:\vscode\fawredd-home-expenses`
 
 ---
 
-## Architecture Overview
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│              Next.js Frontend                    │
-│  (React 19, Server Components, Server Actions)  │
-└──────────────────────┬──────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────┐
-│        API Routes / Server Actions               │
-│    (Auth, Upload, Dashboard, Extraction)         │
-└──────────────────────┬──────────────────────────┘
-                       │
-        ┌──────────────┼──────────────┐
-        │              │              │
-   ┌────▼──────┐  ┌────▼──────┐  ┌──▼───────────┐
-   │ PostgreSQL │  │   Redis   │  │ File Storage │
-   │ (Data ORM)│  │ (Cache)   │  │ (Documents)  │
-   └────┬──────┘  └────┬──────┘  └──┬───────────┘
-        │              │            │
-        └──────────────┼────────────┘
-                       │
-        ┌──────────────┴──────────────┐
-        │                             │
-   ┌────▼──────────┐  ┌──────────────▼────┐
-   │ Background    │  │ AI Services        │
-   │ Jobs (pg-boss)│  │ (Ollama/Remote)    │
-   └───────────────┘  └────────────────────┘
+Next.js Frontend (React 19, Server Components)
+  → API Routes / Server Actions
+    → PostgreSQL (Drizzle ORM) + Filesystem (documents)
+      → Background Jobs (in-memory queue → pg-boss Phase 2)
+      → AI Services (Ollama local / remote fallback)
 ```
 
----
-
-## Core Modules (MVP)
-
-### 1. **Document Ingestion**
-
-- File upload (drag-drop, manual)
-- File type validation (PDF, JPG, PNG)
-- Virus scanning consideration
-- Storage to filesystem
-
-### 2. **Extraction Pipeline**
-
-- OCR processing (Tesseract via Ollama)
-- Structured data parsing
-- Metadata capture (date, amount, vendor, type)
-- Quality scoring
-
-### 3. **Categorization**
-
-- Rule-based heuristics (first pass)
-- RAG-based retrieval (historical patterns)
-- AI fallback (Ollama local)
-- Manual correction & feedback loop
-
-### 4. **Data Persistence**
-
-- Document metadata
-- Extracted movements
-- Categories & hierarchy
-- User corrections (learning)
-- RAG embeddings
-
-### 5. **Dashboard**
-
-- Movement table (filterable, sortable)
-- Monthly/annual aggregation
-- Category breakdown
-- Balance metrics
-- Export capability
+**Key directories:**
+- `db/` — schema.ts, index.ts, queries.ts, seed.ts
+- `lib/` — types.ts, api-utils.ts, categorization.ts, extraction.ts, file-utils.ts, job-queue.ts, utils.ts
+- `app/api/` — 13 endpoint route files (skeletons, not yet wired to lib/)
+- `components/` — all UI components complete
+- `.agents/artifacts/requirement-docs/` — REQ-001 to REQ-005
+- `.agents/artifacts/api-docs/` — 4 Swagger contracts
 
 ---
 
-## MVP Phase 1 Scope
+## Critical Context for Next Agent
 
-### In Scope
+The project has a structural gap: **all lib/ business logic is implemented but not connected to the API routes**. Every route in `app/api/` is still a skeleton. The next Backend Dev agent must wire lib/ into routes — not rewrite the logic.
 
-- ✅ Single-user local deployment
-- ✅ Document upload (PDF, images)
-- ✅ OCR extraction
-- ✅ Automatic categorization (rule-based + AI)
-- ✅ Financial dashboard
-- ✅ Manual correction flow
-- ✅ Spanish UI
+**Do NOT rewrite:**
+- `lib/file-utils.ts` — complete, magic bytes implemented
+- `lib/extraction.ts` — complete for images, PDF is intentional stub
+- `lib/categorization.ts` — 3 strategies implemented, only RAG embeddings recording is stub
+- `lib/job-queue.ts` — in-memory, intentional for Phase 1 (pg-boss deferred to Phase 2)
+- All `components/` — all complete, do not touch
 
-### Out of Scope (Phase 2+)
-
-- Multi-user auth/RBAC
-- Cloud deployment (Vercel)
-- Vercel Blob storage
-- Scheduled folder watching
-- Advanced analytics
-- Mobile app
+**The only work remaining in Phase 1c is wiring routes to existing lib/ functions.**
 
 ---
 
-## Database Strategy
-
-**ORM:** Drizzle ORM
-**Migrations:** Drizzle Migrations
-**Seed:** Sample data + categories
-
-### Core Tables (TBD in REQ-005)
-
-- `documents` — Original file metadata
-- `movements` — Extracted financial entries
-- `categories` — Taxonomy (hierarchical)
-- `rag_embeddings` — Vector store for categorization memory
-- `corrections` — User feedback for learning
+## Task History
 
 ---
 
-## API Strategy
-
-All endpoints documented in **OpenAPI 3.0 Swagger** format under `.agents/artifacts/api-docs/`.
-
-**Endpoints will cover:**
-
-- Document upload & processing
-- Movement CRUD
-- Categorization (auto + manual)
-- Dashboard data aggregation
-- Admin configuration
+## [TASK-001 to TASK-010] — Specs, Contracts, Security Review
+- Status: DONE
+- Agent: Technical BA + Security Engineer
+- Date: 2026-05-26
+- Summary: 5 requirement docs, 4 Swagger contracts, full security review. All APPROVED_WITH_NOTES.
+- Decisions: Single-user MVP. Spanish UI hardcoded. No Docker for local dev.
+- Pending: None
+- Next Agent: None
 
 ---
 
-## Security Considerations (TBD)
-
-- Input validation (Zod schemas)
-- File type whitelisting
-- Malware scanning (optional Phase 1)
-- CORS configuration
-- Error message sanitization
-- No PII logging
-
----
-
-## Development Environment
-
-**Phase 1 (Current):**
-
-- Local Next.js dev server
-- Local PostgreSQL (Docker)
-- Local Redis (Docker)
-- Local Ollama (optional, fallback to remote)
-
-**Deployment readiness:**
-
-- Docker Compose for orchestration
-- Environment-based config (local/staging/prod)
+## [TASK-011 to TASK-015] — Backend Infrastructure (Phase 1b)
+- Status: DONE
+- Agent: Backend Dev
+- Date: 2026-05-27
+- Summary: DB schema (8 tables), Drizzle config, seed (9 Spanish categories), types, Zod schemas, API utilities, 13 skeleton routes.
+- Decisions:
+  - UUID primary keys on all tables (prevents IDOR)
+  - pgvector 384D embeddings (nomic-embed-text)
+  - In-memory job queue for Phase 1, pg-boss deferred to Phase 2
+  - Filesystem storage Phase 1, Vercel Blob Phase 2
+  - Local Ollama default, configurable remote fallback
+- Pending: None
+- Next Agent: Backend Dev → TASK-016b
 
 ---
 
-## Performance & Scalability
-
-**MVP Targets:**
-
-- Document upload: < 5MB per file
-- Processing latency: < 30 seconds per document
-- Dashboard query: < 1 second
-
-**Future optimizations:**
-
-- Batch processing
-- Caching strategies
-- Database indexing
-- Vector DB optimization
-
----
-
-## Internationalization (i18n)
-
-**Phase 1:** Spanish (es-ES) hardcoded in UI
-**Future:** i18n framework (next-intl) for multi-language support
+## [TASK-016 to TASK-019] — Business Logic Libraries (Phase 1c partial)
+- Status: IN_PROGRESS
+- Agent: Backend Dev
+- Date: 2026-05-27
+- Summary: All lib/ files created with business logic. Routes are still skeletons.
+- Decisions:
+  - PDF extraction intentionally stubbed — "Phase 2, integrate pdfjs" (explicit comment in extraction.ts)
+  - `recordSuccessfulCategorization()` intentionally stubbed — RAG embedding generation deferred (2 TODOs in categorization.ts)
+  - job-queue.ts uses in-memory Map, not pg-boss — intentional for Phase 1
+- Pending:
+  - Wire lib/file-utils.ts into upload route (TASK-016b)
+  - Wire lib/extraction.ts into extraction route + Zod validation (TASK-017b)
+  - Wire lib/categorization.ts into category routes (TASK-018b)
+  - Wire db/queries.ts into all dashboard routes + add metrics query + user_id filtering (TASK-019b)
+- Next Agent: Backend Dev
 
 ---
 
-## Monitoring & Logging
-
-**MVP Phase 1:** Console logs (structured)
-**Future:** Dedicated logging service (Datadog, Vercel Analytics)
-
----
-
-## User Roles
-
-### End User
-
-- Upload documents
-- Review categorizations
-- Correct errors
-- View financial dashboard
-
-### Administrator (Phase 2)
-
-- Category management
-- AI model configuration
-- System monitoring
+## [TASK-020 to TASK-024] — Frontend Components (Phase 1d)
+- Status: DONE
+- Agent: Frontend Dev
+- Date: 2026-05-27
+- Summary: All components implemented. Connects to API routes via fetch — will work once routes are wired.
+- Components:
+  - `upload-component.tsx` — drag-drop, XHR progress, queue management
+  - `movements-table.tsx` — filtering, sorting, pagination (50/page)
+  - `category-correction-modal.tsx` — GET + PUT category, preview before save
+  - `dashboard-layout.tsx` — dark/light mode with localStorage persistence
+  - `category-breakdown.tsx` — progress bars with dynamic colors
+  - `metrics-summary.tsx` — 4 KPI cards + uncategorized alert + dateRange support
+  - `summary-tables.tsx` — monthly (with changePercent) + annual tables
+- Decisions:
+  - All components are "use client" — fetch directly from API routes
+  - Dark mode via document.documentElement classList + localStorage
+  - No page-level integration yet — components exist but not assembled into app/page.tsx
+- Pending: Page integration (assemble components into app/page.tsx) — minor, ~1h
+- Next Agent: Frontend Dev after Backend Dev completes TASK-016b to TASK-019b
 
 ---
 
-## Key Decisions
+## Security Requirements — Must Be Implemented in Routes
 
-1. **Drizzle ORM** — Type-safe, lightweight, SQL-first approach aligns with TypeScript-first product
-2. **pg-boss** — Native PostgreSQL job queue, no external service dependency
-3. **Local Ollama default** — Privacy-first, cost-free, fallback to remote configured by user
-4. **RAG via pgvector** — Keep all data in PostgreSQL, minimal infrastructure
-5. **Filesystem storage Phase 1** — Simplicity for MVP, Vercel Blob for Phase 2
-6. **shadcn/ui + TailwindCSS** — Minimal, modern, highly customizable UX
+These were flagged by Security Engineer and are NOT yet wired:
+
+| Requirement | File | Status |
+|------------|------|--------|
+| Magic byte validation on upload | lib/file-utils.ts ✅ → upload/route.ts ❌ | Not wired |
+| Zod validation before storage | lib/types.ts ✅ → extraction/route.ts ❌ | Not wired |
+| Vendor sanitization before LLM | lib/extraction.ts ✅ → categorization already uses it ✅ | Done |
+| user_id filtering on dashboard queries | db/queries.ts ❌ | Not implemented |
 
 ---
 
-## Next Steps
+## Environment Setup (for new agents)
 
-1. ✅ Complete STATE.md
-2. 🔄 Technical BA produces Requirement Docs (REQ-001 through REQ-005)
-3. 🔄 Security Engineer reviews each Requirement Doc
-4. 🔄 Backend + Frontend + Infrastructure begin implementation
-5. 🔄 CI validation
-6. 🔄 QA testing
+```bash
+# Prerequisites: Node.js v18+, PostgreSQL v14+, pnpm
+psql -U postgres
+CREATE DATABASE fawredd_local;
+\c fawredd_local
+CREATE EXTENSION IF NOT EXISTS vector;
+\q
+
+cd c:\vscode\fawredd-home-expenses
+pnpm install
+cp .env.example .env.development
+# Set DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/fawredd_local
+pnpm db:setup
+pnpm dev
+```
+
+Full setup guide: `LOCAL_SETUP.md` (project root)
+
+---
+
+## Known Technical Debt (Phase 2)
+
+| Item | Location | Notes |
+|------|----------|-------|
+| PDF extraction stub | lib/extraction.ts L~95 | "Phase 2, integrate pdfjs" |
+| RAG embedding recording | lib/categorization.ts L~185 | 2 TODOs — generate + store embeddings |
+| In-memory job queue | lib/job-queue.ts | Replace with pg-boss Phase 2 |
+| user_id filtering | db/queries.ts | Required for Phase 2 multi-user |
+
+---
+
+## [TASK-016b to TASK-019b + Page Assembly] — API Route Wiring (Phase 1c)
+- Status: DONE
+- Agent: Backend Dev (previous session)
+- Date: 2026-05-27 (detected by PM audit 2026-05-29)
+- Summary: All API routes fully wired to lib/ business logic. Upload route wires file-utils + magic bytes + job-queue. Extraction routes GET/PUT from DB. Category routes GET/PUT wired. All dashboard routes wired to db/queries.ts. app/page.tsx fully assembled with all tabs.
+- Decisions:
+  - upload/route.ts includes inline job handler registration for extract jobs
+  - Extraction update (PUT) does not re-trigger categorization — user correction only updates extraction fields
+  - Dashboard metrics route uses raw SQL aggregations (no query builder) due to no pre-built metrics query in queries.ts
+  - app/page.tsx uses window.location.reload() after category correction — acceptable for Phase 1 MVP
+- Pending: None
+- Next Agent: CI Engineer → TASK-025
+
+---
+
+## [TASK-029] — Fix TypeScript errors
+- Status: DONE
+- Agent: Backend Dev
+- Date: 2026-05-29
+- Summary: Fixed TypeScript errors in db/schema.ts (implicit 'any' and self-references), db/seed.ts (array typing for Drizzle returning), and lib/api-utils.ts (ApiResponse data type).
+- Decisions: Explicitly typed 'categories' self-reference with 'AnyPgColumn'. Used 'appSchema' instead of 'pgTable' following database standards. Added runtime Array.isArray check in seed.ts. Changed ApiResponse typing in validationErrorResponse.
+- Pending: None
+- Next Agent: CI Engineer
+
+---
+
+## [TASK-030] — Fix Next.js Route Handler 'params' type
+- Status: DONE
+- Agent: Backend Dev
+- Date: 2026-05-29
+- Summary: Fixed Next.js 15+ Route Handlers dynamic `params` typings to be `Promise<{...}>` and awaited the variable before access in `documents/[documentId]/extraction/route.ts`, `documents/[documentId]/route.ts`, and `movements/[movementId]/category/route.ts`.
+- Decisions: Updated all three dynamic routes present in `app/api/` per Next.js 15+ async `params` requirements. 
+- Pending: None
+- Next Agent: CI Engineer
+
+---
+
+## [TASK-026] — QA Engineer — BDD Test Suites
+- Status: DONE
+- Agent: QA Engineer
+- Date: 2026-05-29
+- Summary: Generated Gherkin test suites (.feature files) for REQ-001 through REQ-005 covering Happy Paths, Edge Cases, Error Scenarios, and Security Scenarios.
+- Decisions: Structured feature files based on the Acceptance Criteria provided in the respective Technical BA Requirement Docs.
+- Pending: None
+- Next Agent: PM

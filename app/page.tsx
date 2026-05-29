@@ -1,65 +1,155 @@
-import Image from "next/image";
+"use client";
+
+import React, { useState } from "react";
+import { DashboardLayout } from "@/components/dashboard-layout";
+import { DocumentUploadComponent } from "@/components/upload-component";
+import { MetricsSummary } from "@/components/metrics-summary";
+import { MovementsTable } from "@/components/movements-table";
+import {
+  MonthlySummaryTable,
+  AnnualSummaryTable,
+} from "@/components/summary-tables";
+import { CategoryBreakdownTable } from "@/components/category-breakdown";
+import { CategoryCorrectionModal } from "@/components/category-correction-modal";
+
+type TabType = "upload" | "movements" | "monthly" | "annual" | "categories";
 
 export default function Home() {
+  const [activeTab, setActiveTab] = useState<TabType>("movements");
+  const [selectedMovementId, setSelectedMovementId] = useState<string | null>(
+    null,
+  );
+
+  const handleCategoryEdit = (movementId: string) => {
+    setSelectedMovementId(movementId);
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <DashboardLayout>
+      <div className="space-y-8">
+        {/* Title */}
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-50 mb-2">
+            Panel Financiero
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="text-slate-600 dark:text-slate-400">
+            Gestiona y analiza tus movimientos financieros
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        {/* Metrics Summary */}
+        <div>
+          <h2 className="text-lg font-semibold mb-4">Resumen Financiero</h2>
+          <MetricsSummary />
         </div>
-      </main>
-    </div>
+
+        {/* Tab Navigation */}
+        <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700 overflow-x-auto">
+          <button
+            onClick={() => setActiveTab("upload")}
+            className={`px-4 py-3 font-medium border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === "upload"
+                ? "border-blue-600 text-blue-600 dark:text-blue-400"
+                : "border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-50"
+            }`}
+          >
+            📤 Cargar Documentos
+          </button>
+          <button
+            onClick={() => setActiveTab("movements")}
+            className={`px-4 py-3 font-medium border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === "movements"
+                ? "border-blue-600 text-blue-600 dark:text-blue-400"
+                : "border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-50"
+            }`}
+          >
+            📋 Movimientos
+          </button>
+          <button
+            onClick={() => setActiveTab("monthly")}
+            className={`px-4 py-3 font-medium border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === "monthly"
+                ? "border-blue-600 text-blue-600 dark:text-blue-400"
+                : "border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-50"
+            }`}
+          >
+            📊 Mensual
+          </button>
+          <button
+            onClick={() => setActiveTab("annual")}
+            className={`px-4 py-3 font-medium border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === "annual"
+                ? "border-blue-600 text-blue-600 dark:text-blue-400"
+                : "border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-50"
+            }`}
+          >
+            📈 Anual
+          </button>
+          <button
+            onClick={() => setActiveTab("categories")}
+            className={`px-4 py-3 font-medium border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === "categories"
+                ? "border-blue-600 text-blue-600 dark:text-blue-400"
+                : "border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-50"
+            }`}
+          >
+            🏷️ Por Categoría
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        <div>
+          {activeTab === "upload" && (
+            <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
+              <h2 className="text-lg font-semibold mb-6">
+                Cargar Documentos Financieros
+              </h2>
+              <DocumentUploadComponent />
+            </div>
+          )}
+
+          {activeTab === "movements" && (
+            <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
+              <h2 className="text-lg font-semibold mb-6">Movimientos</h2>
+              <MovementsTable onCategoryEdit={handleCategoryEdit} />
+            </div>
+          )}
+
+          {activeTab === "monthly" && (
+            <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
+              <h2 className="text-lg font-semibold mb-6">Resumen Mensual</h2>
+              <MonthlySummaryTable />
+            </div>
+          )}
+
+          {activeTab === "annual" && (
+            <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
+              <h2 className="text-lg font-semibold mb-6">Resumen Anual</h2>
+              <AnnualSummaryTable />
+            </div>
+          )}
+
+          {activeTab === "categories" && (
+            <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
+              <h2 className="text-lg font-semibold mb-6">
+                Distribución por Categoría
+              </h2>
+              <CategoryBreakdownTable />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Category Correction Modal */}
+      <CategoryCorrectionModal
+        movementId={selectedMovementId || ""}
+        isOpen={selectedMovementId !== null}
+        onClose={() => setSelectedMovementId(null)}
+        onSuccess={() => {
+          // Refresh the movements table
+          window.location.reload();
+        }}
+      />
+    </DashboardLayout>
   );
 }

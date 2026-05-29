@@ -1,6 +1,3 @@
----
-trigger: always_on
----
 # Agile Process Rules
 
 > Governs all agents operating in this workspace. Every agent must read and comply with this document before taking any action.
@@ -99,6 +96,164 @@ All API contracts must use **Swagger / OpenAPI 3.0** format, saved to `.agents/a
 
 ---
 
+## Database Standards
+
+All projects in this workspace use PostgreSQL + Drizzle ORM.
+
+### Mandatory Rules
+
+- ALWAYS use PostgreSQL schemas for project isolation.
+- NEVER use the default `public` schema.
+- Every project MUST define a dedicated schema name.
+- All Drizzle tables MUST be created from a `pgSchema(...)` instance.
+- Direct use of `pgTable(...)` is forbidden unless explicitly approved.
+- Raw SQL queries MUST explicitly reference the project schema.
+- Migrations MUST target only the assigned schema.
+- Agents must assume the database server is shared across multiple projects.
+
+### Required Pattern
+
+```ts
+import { pgSchema } from "drizzle-orm/pg-core";
+
+export const appSchema = pgSchema("<PROJECT_DB_SCHEMA>");
+```
+
+All tables must use:
+
+```ts
+appSchema.table(...)
+```
+
+Never:
+
+```ts
+pgTable(...)
+```
+
+### drizzle.config.ts Requirements
+
+The Drizzle configuration MUST explicitly support the project schema.
+
+Example:
+
+```ts
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  schema: "./src/db/schema",
+  out: "./drizzle",
+  dialect: "postgresql",
+  dbCredentials: {
+    url: process.env.DATABASE_URL!,
+  },
+});
+```
+
+### Migration Rules
+
+- Generated migrations MUST only affect `<PROJECT_DB_SCHEMA>`.
+- Never generate or modify objects in unrelated schemas.
+- Introspection must target only the project schema whenever supported.
+- Migration reviews must verify schema isolation before execution.
+
+### Infrastructure Requirements
+
+- PostgreSQL connections should configure:
+  `search_path=<PROJECT_DB_SCHEMA>`
+- Database users should not have permissions over unrelated schemas whenever possible.
+
+### Backend Agent Responsibility
+
+The Backend Engineer is responsible for:
+- preserving schema isolation
+- avoiding cross-project queries
+- ensuring migrations never touch unrelated schemas
+
+---
+
+## TypeScript Standards
+
+All projects in this workspace use strict TypeScript.
+
+### Mandatory Rules
+
+- NEVER use `any` unless explicitly approved by the stakeholder.
+- `unknown` must be preferred over `any` when type safety is uncertain.
+- All functions must declare explicit parameter and return types.
+- All API payloads must be validated with Zod.
+- Zod schemas must be the source of truth for runtime validation.
+- Types should be inferred from Zod whenever possible.
+- Avoid manual duplicate type definitions when Zod inference is available.
+- Prefer discriminated unions over loose object typing.
+- Prefer readonly types when mutation is not required.
+- Avoid unsafe type assertions (`as any`, double casting, etc.).
+- TypeScript strict mode assumptions must always be respected.
+- Never bypass type errors to make builds pass.
+- Generic types must use meaningful constraints.
+- Database entities, DTOs, API responses, and form payloads must be strongly typed.
+
+### Zod Standards
+
+Preferred pattern:
+
+```ts
+import { z } from "zod";
+
+export const userSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
+});
+
+export type User = z.infer<typeof userSchema>;
+```
+
+### Forbidden Patterns
+
+Never:
+
+```ts
+const data: any = response;
+```
+
+Never:
+
+```ts
+function process(data: any)
+```
+
+Never:
+
+```ts
+as any
+```
+
+Never:
+
+```ts
+as unknown as SomeType
+```
+
+### Backend Responsibilities
+
+Backend Engineers must:
+- validate all external inputs with Zod
+- infer DTO types from schemas
+- preserve end-to-end type safety
+- avoid nullable ambiguity
+- properly type database responses
+
+### Frontend Responsibilities
+
+Frontend Engineers must:
+- strongly type component props
+- strongly type hooks and state
+- avoid implicit `any`
+- validate forms with Zod
+- infer form types from schemas
+
+---
+
 ## Build Validation Gate (Mandatory)
 
 The CI Engineer may ONLY execute these commands, in this order:
@@ -108,6 +263,13 @@ pnpm run lint
 npx tsc --noEmit
 pnpm run build
 ```
+### TypeScript Quality Gate
+
+The CI Engineer must fail validation if:
+- explicit `any` exists
+- unsafe casts exist
+- TypeScript errors are silenced
+- Zod validation is missing for external inputs
 
 **Failure output:**
 ```
@@ -218,7 +380,29 @@ Suggested Action: <concrete next step>
 
 ## State Management
 
-After every completed task, the responsible agent must update `.agents/artifacts/STATE.md`. No task is done without a STATE update.
+After every completed task, the responsible agent **must** update
+`.agents/artifacts/STATE.md` using the template below.
+No task is considered done without a STATE update.
+
+### STATE.md Entry Template
+
+\```
+## [TASK-ID] — Task Title
+- Status: <DONE | IN_PROGRESS | BLOCKED>
+- Agent: <role>
+- Date: YYYY-MM-DD
+- Summary: <what was done in 1-2 sentences>
+- Decisions: <design or implementation decisions made in chat that are not captured in the Requirement Doc>
+- Pending: <what remains if status is IN_PROGRESS or BLOCKED>
+- Next Agent: <role that must act next, or NONE if DONE>
+\```
+
+### Rules
+
+- Append new entries — never overwrite previous ones.
+- `Decisions` is mandatory if any choice was made that future agents need to understand.
+- `Pending` is mandatory if status is not `DONE`.
+- If a task was BLOCKED, include the `[BLOCKED]` tag content verbatim under `Pending`.
 
 ---
 
@@ -231,11 +415,10 @@ After every completed task, the responsible agent must update `.agents/artifacts
 - [ ] Implementation validated against stakeholder-described behavior
 - [ ] All core user flows functional end-to-end (manual QA)
 - [ ] No critical or high-severity functional gaps remain
-- [ ] `STATE.md` updated
+- [ ] `.agents/artifacts/STATE.md` entry appended with Summary, Decisions, and Pending fields completed
 - [ ] `agents-backlog.md` status updated to `DONE`
 - [ ] `pnpm run lint` passes
 - [ ] `npx tsc --noEmit` passes
-- [ ] `pnpm run build` succeeds
 - [ ] CI Engineer issued `[CI_APPROVED]`
 - [ ] PM has verified against QA and marked DONE
 
@@ -251,6 +434,27 @@ After every completed task, the responsible agent must update `.agents/artifacts
 | API Contracts | `.agents/artifacts/api-docs/` |
 | Project State | `.agents/artifacts/STATE.md` |
 
+---
+### Artifact Creation Rule
+
+Agents may ONLY create files in the locations defined in the table above.
+
+Creating files in the project root or in any path not listed here is
+STRICTLY FORBIDDEN. If an agent needs a new artifact type not covered
+by the table, it must raise an [OPTIMIZATION] request to the PM and
+wait for approval before creating any file.
+
+---
+
+### Project Initialization (PM — First Session Only)
+
+Before assigning any task, the PM must verify the following files exist.
+If they do not, create them immediately:
+
+- `agents-backlog.md` — initialize with empty backlog structure
+- `.agents/artifacts/STATE.md` — initialize with project name and date
+
+No task may be assigned until both files exist.
 ---
 
 ## File System Naming

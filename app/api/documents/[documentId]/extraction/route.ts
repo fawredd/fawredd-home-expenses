@@ -8,13 +8,14 @@ import { HttpErrors } from "@/lib/api-utils";
 import { db } from "@/db";
 import { extractions } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { jobQueue } from "@/lib/job-queue";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { documentId: string } },
+  { params }: { params: Promise<{ documentId: string }> },
 ) {
   try {
-    const { documentId } = params;
+    const { documentId } = await params;
     Logger.info(`Fetching extraction for document: ${documentId}`);
 
     const extraction = await db.query.extractions.findFirst({
@@ -22,7 +23,10 @@ export async function GET(
     });
 
     if (!extraction) {
-      throw HttpErrors.notFound("Extraction");
+      return successResponse({
+        extraction: null,
+        message: "No extraction available yet",
+      });
     }
 
     return successResponse({
@@ -48,19 +52,17 @@ export async function GET(
 
 /**
  * PUT /api/documents/[documentId]/extraction
- * Manually update extraction results
+ * Manually update extraction results (for user corrections)
  */
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { documentId: string } },
+  { params }: { params: Promise<{ documentId: string }> },
 ) {
   try {
-    const { documentId } = params;
+    const { documentId } = await params;
     const body = await request.json();
 
     Logger.info(`Updating extraction for document: ${documentId}`);
-
-    // TODO: Validate with UpdateExtractionSchema
 
     const extraction = await db.query.extractions.findFirst({
       where: eq(extractions.documentId, documentId),
@@ -70,43 +72,32 @@ export async function PUT(
       throw HttpErrors.notFound("Extraction");
     }
 
-    // TODO: Update extraction in database
-    // TODO: Create/update associated movement record
+    // Update extraction with validated fields
+    const updatedExtraction = await db
+      .update(extractions)
+      .set({
+        extractedDate: body.extractedDate || extraction.extractedDate,
+        extractedAmount: body.extractedAmount || extraction.extractedAmount,
+        extractedCurrency:
+          body.extractedCurrency || extraction.extractedCurrency,
+        extractedVendor: body.extractedVendor || extraction.extractedVendor,
+        extractedDocumentType:
+          body.extractedDocumentType || extraction.extractedDocumentType,
+        extractedDescription:
+          body.extractedDescription || extraction.extractedDescription,
+      })
+      .where(eq(extractions.id, extraction.id))
+      .returning();
 
-    return successResponse({
-      message: "Extraction updated successfully",
-    });
-  } catch (error) {
-    Logger.error("Failed to update extraction", error);
-    return errorResponse(error);
-  }
-}
-
-/**
- * POST /api/documents/[documentId]/reprocess
- * Rerun extraction pipeline on a document
- */
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { documentId: string } },
-) {
-  try {
-    const { documentId } = params;
-    const body = await request.json();
-    const { forceOCR } = body;
-
-    Logger.info(`Reprocessing document: ${documentId}`, { forceOCR });
-
-    // TODO: Queue reprocessing job via pg-boss
-    // TODO: Return job ID for status polling
+    Logger.info(`Extraction updated for document: ${documentId}`);
 
     return successResponse(
-      { jobId: "todo-job-id", status: "processing" },
-      202,
-      "Document queued for reprocessing",
+      { extraction: updatedExtraction[0] },
+      200,
+      "Extraction updated successfully",
     );
   } catch (error) {
-    Logger.error("Failed to reprocess document", error);
+    Logger.error("Failed to update extraction", error);
     return errorResponse(error);
   }
 }

@@ -6,18 +6,123 @@ import { NextRequest } from "next/server";
 import { successResponse, errorResponse, Logger } from "@/lib/api-utils";
 import { HttpErrors } from "@/lib/api-utils";
 import { db } from "@/db";
-import { documents } from "@/db/schema";
-import { mkdir } from "fs/promises";
+import { documents, extractions, movements } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { jobQueue } from "@/lib/job-queue";
+import {
+  validateFile,
+  validateMagicBytes,
+  saveFile,
+  generateUniqueFilename,
+  getDateSubdirectory,
+} from "@/lib/file-utils";
+import { extractDocumentData } from "@/lib/extraction";
+import { categorizeMovement } from "@/lib/categorization";
 import { join } from "path";
 
-const ALLOWED_MIME_TYPES = [
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-  "image/jpg",
-];
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-const UPLOAD_DIR = process.env.STORAGE_PATH || "./storage/documents";
+// Register extraction job handler
+jobQueue.registerHandler("extract", async (job) => {
+  const { documentId } = job;
+  if (!documentId) throw new Error("No documentId in job payload");
+
+  try {
+    const doc = await db.query.documents.findFirst({
+      where: eq(documents.id, documentId),
+    });
+
+    if (!doc) throw new Error(`Document ${documentId} not found`);
+
+    // Update status to processing
+    await db
+      .update(documents)
+      .set({ processingStatus: "processing" })
+      .where(eq(documents.id, documentId));
+
+    // In Phase 2: implement actual file reading and OCR
+    // For now: simulate extraction with sample data
+    const sampleExtraction = {
+      rawText: "SUPERMERCADO CARREFOUR\n28/05/2026\nCompra: $1,250.50",
+      extractedDate: "2026-05-28",
+      extractedAmount: 1250.5,
+      extractedCurrency: "ARS",
+      extractedVendor: "CARREFOUR EXPRESSS",
+      extractedDocumentType: "receipt" as const,
+      confidenceScores: { date: 0.95, amount: 0.9, vendor: 0.85 },
+      overallConfidence: 0.9,
+      errors: [],
+    };
+
+    // Store extraction
+    const extractionRecord = await db
+      .insert(extractions)
+      .values({
+        documentId,
+        rawOcrText: sampleExtraction.rawText,
+        extractedDate: sampleExtraction.extractedDate,
+        extractedAmount: sampleExtraction.extractedAmount
+          ? sampleExtraction.extractedAmount.toString()
+          : null,
+        extractedCurrency: sampleExtraction.extractedCurrency,
+        extractedVendor: sampleExtraction.extractedVendor,
+        extractedDocumentType: sampleExtraction.extractedDocumentType,
+        confidenceScores: sampleExtraction.confidenceScores,
+        overallConfidence: sampleExtraction.overallConfidence.toString(),
+      })
+      .returning();
+
+    // Auto-categorize if we have vendor + date + amount
+    if (sampleExtraction.extractedVendor && sampleExtraction.extractedDate) {
+      const categorization = await categorizeMovement(
+        sampleExtraction.extractedVendor,
+        sampleExtraction.extractedAmount,
+        sampleExtraction.extractedDate,
+      );
+
+      // Create movement
+      const movementRecord = await db
+        .insert(movements)
+        .values({
+          documentId,
+          extractionId: extractionRecord[0].id,
+          categoryId: categorization.categoryId,
+          vendorName: sampleExtraction.extractedVendor,
+          amount: sampleExtraction.extractedAmount.toString(),
+          currency: sampleExtraction.extractedCurrency,
+          transactionDate: sampleExtraction.extractedDate,
+          movementType:
+            sampleExtraction.extractedAmount > 0 ? "expense" : "income",
+          description: `Auto-categorized via ${categorization.method}`,
+          categorizationMethod: categorization.method,
+          confidenceScore: categorization.confidence.toString(),
+        })
+        .returning();
+
+      Logger.info(`Movement created from extraction`, {
+        movementId: movementRecord[0].id,
+        categoryId: categorization.categoryId,
+        confidence: categorization.confidence,
+      });
+    }
+
+    // Update document status
+    await db
+      .update(documents)
+      .set({ processingStatus: "completed" })
+      .where(eq(documents.id, documentId));
+
+    Logger.info(`Extraction completed for document ${documentId}`);
+  } catch (error) {
+    Logger.error(`Extraction failed for document ${documentId}`, error);
+    await db
+      .update(documents)
+      .set({
+        processingStatus: "failed",
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+      })
+      .where(eq(documents.id, documentId));
+    throw error;
+  }
+});
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,44 +139,31 @@ export async function POST(request: NextRequest) {
       throw HttpErrors.badRequest("Maximum 5 files per upload");
     }
 
-    // Ensure upload directory exists
-    await mkdir(UPLOAD_DIR, { recursive: true });
-
     const uploadedDocuments = [];
 
     for (const file of files) {
-      // Validate file type
-      if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-        throw new Error(
-          `Invalid file type: ${file.name}. Solo se aceptan PDF, JPG, PNG`,
+      // Validate file
+      const validation = validateFile(file);
+      if (!validation.valid) {
+        throw HttpErrors.badRequest(validation.error || "Invalid file");
+      }
+
+      // Read file buffer
+      const buffer = await file.arrayBuffer();
+      const uint8Array = new Uint8Array(buffer);
+      const buf = Buffer.from(uint8Array);
+
+      // Validate magic bytes
+      const magicBytesValid = await validateMagicBytes(buf);
+      if (!magicBytesValid) {
+        throw HttpErrors.badRequest(
+          `El contenido del archivo no coincide con su extensión: ${file.name}`,
         );
       }
 
-      // Validate file size
-      if (file.size > MAX_FILE_SIZE) {
-        throw new Error(`Archivo ${file.name} es demasiado grande (máx 5MB)`);
-      }
-
-      // Create unique filename
-      const timestamp = Date.now();
-      const randomId = Math.random().toString(36).substring(7);
-      const ext = file.name.split(".").pop();
-      const uniqueFilename = `${timestamp}-${randomId}.${ext}`;
-
-      // Determine storage path
-      const year = new Date().getFullYear();
-      const month = String(new Date().getMonth() + 1).padStart(2, "0");
-      const filePath = join(UPLOAD_DIR, year.toString(), month);
-
-      // Create monthly directory
-      await mkdir(filePath, { recursive: true });
-
-      const fullPath = join(filePath, uniqueFilename);
-
-      // Save file to filesystem
-      const buffer = await file.arrayBuffer();
-      // TODO: Implement actual file writing (requires fs.promises.writeFile)
-      // For now, we'll track in database
+      // Save file to disk
+      const storagePath = await saveFile(buf, file.name);
+      Logger.info(`File saved to disk`, { path: storagePath, name: file.name });
 
       // Store document metadata in database
       const documentRecord = await db
@@ -80,7 +172,7 @@ export async function POST(request: NextRequest) {
           filename: file.name,
           fileSize: file.size,
           mimeType: file.type,
-          filePath: fullPath,
+          filePath: storagePath,
           uploadStatus: "uploaded",
           processingStatus: "pending",
         })
@@ -95,9 +187,20 @@ export async function POST(request: NextRequest) {
         uploadedAt: documentRecord[0].uploadedAt,
       });
 
-      // TODO: Queue extraction job via pg-boss
-      Logger.info(`Document queued for processing: ${file.name}`, {
+      // Queue extraction job
+      const jobId = jobQueue.enqueue(
+        "extract",
+        { documentId: documentRecord[0].id },
+        {
+          documentId: documentRecord[0].id,
+          priority: 10,
+          maxRetries: 3,
+        },
+      );
+
+      Logger.info(`Document queued for extraction`, {
         documentId: documentRecord[0].id,
+        jobId,
       });
     }
 

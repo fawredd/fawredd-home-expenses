@@ -27,22 +27,3 @@ export async function GET(request: NextRequest) {
     return errorResponse(error);
   }
 }
-
-/**
- * GET /api/dashboard/annual-summary
- * Get annual income, expense, and balance summary
- */
-
-export async function getAnnualSummary(request: NextRequest) {
-  try {
-    Logger.info("Fetching annual summary");
-
-    // TODO: Implement annual summary query
-    return successResponse({
-      summary: [],
-    });
-  } catch (error) {
-    Logger.error("Failed to fetch annual summary", error);
-    return errorResponse(error);
-  }
-}

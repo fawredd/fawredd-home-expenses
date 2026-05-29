@@ -44,6 +44,14 @@ Before writing any code for a task, verify:
 
 ---
 
+## Frontend Type Safety
+
+- All React props must be explicitly typed
+- Hooks must expose typed contracts
+- Forms must use Zod inference
+- Component state must never use `any`
+
+---
 ## API Consumption
 
 - Derive all request/response types directly from the Swagger YAML.
