@@ -106,11 +106,11 @@
 
 | TASK-025 | CI validation (lint → typecheck → build) | CI Engineer | 1h | **DONE** |
 | TASK-026 | BDD test suites — REQ-001 to REQ-005 | QA Engineer | 6h | **DONE** |
-| TASK-027 | Manual functional testing — full MVP | QA Engineer | 3h | **NEXT** |
+| TASK-027 | Manual functional testing — full MVP | QA Engineer | 3h | **DONE** |
 | TASK-029 | Fix TypeScript errors (implicit 'any', NextResponses) in db/schema.ts, db/seed.ts, lib/api-utils.ts | Backend Dev | 1h | **DONE** |
 | TASK-030 | Fix Next.js dynamic route 'params' Promise constraints | Backend Dev | 1h | **DONE** |
-| TASK-031 | Update docker-compose.yml for pgvector and DB name | Infra Engineer | 1h | **IN_PROGRESS** |
-| TASK-032 | Implement DB schema isolation with env variables | Backend Dev | 2h | **IN_PROGRESS** |
+| TASK-031 | Update docker-compose.yml for pgvector and DB name | Infra Engineer | 1h | **DONE** |
+| TASK-032 | Implement DB schema isolation with env variables | Backend Dev | 2h | **DONE** |
 
 ---
 

@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "agile-orchestrator": {
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/mcp-server.mjs"
+      ]
+    }
+  }
+}

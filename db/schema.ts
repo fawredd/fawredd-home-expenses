@@ -19,10 +19,27 @@ import {
 import { sql } from "drizzle-orm";
 
 // Enum values as constants (using varchar instead of native enums for MVP)
-const uploadStatusEnum = ["uploaded", "processing", "completed", "failed"] as const;
-const processingStatusEnum = ["pending", "extracting", "categorizing", "done", "error"] as const;
+const uploadStatusEnum = [
+  "uploaded",
+  "processing",
+  "completed",
+  "failed",
+] as const;
+const processingStatusEnum = [
+  "pending",
+  "extracting",
+  "categorizing",
+  "done",
+  "error",
+] as const;
 const movementTypeEnum = ["income", "expense"] as const;
-const jobStatusEnum = ["pending", "processing", "completed", "failed", "retry"] as const;
+const jobStatusEnum = [
+  "pending",
+  "processing",
+  "completed",
+  "failed",
+  "retry",
+] as const;
 const categorizationMethodEnum = ["rule", "rag", "ai", "manual"] as const;
 
 // Custom pgvector type for embeddings
@@ -42,8 +59,9 @@ const vector = (name: string, dimensions: number) =>
     },
   })(name);
 
-
-export const appSchema = pgSchema("fawredd_home_expenses");
+export const appSchema = pgSchema(
+  process.env.DB_SCHEMA || "fawredd_home_expenses",
+);
 
 // Tables
 
@@ -289,7 +307,9 @@ export const processingJobs = appSchema.table(
       onDelete: "set null",
     }),
     jobType: varchar("job_type", { length: 50 }).notNull(),
-    jobStatus: varchar("job_status", { length: 50 }).notNull().default("pending"),
+    jobStatus: varchar("job_status", { length: 50 })
+      .notNull()
+      .default("pending"),
     priority: integer("priority").default(0),
     retryCount: integer("retry_count").default(0),
     errorDetails: jsonb("error_details"),
