@@ -2,7 +2,7 @@
  * File system utilities for document storage
  */
 import { promises as fs } from "fs";
-import { join, extname } from "path";
+import { join, extname, isAbsolute, normalize, relative, sep } from "path";
 
 const STORAGE_PATH = process.env.STORAGE_PATH || "./storage/documents";
 const ALLOWED_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png"];
@@ -69,6 +69,19 @@ export function getDateSubdirectory(): string {
   return join(year.toString(), month);
 }
 
+function resolveStoragePath(filePath: string): string {
+  if (isAbsolute(filePath)) return filePath;
+
+  const normalizedStoragePath = normalize(`${STORAGE_PATH}${sep}`);
+  const normalizedFilePath = normalize(filePath);
+
+  if (normalizedFilePath.startsWith(normalizedStoragePath)) {
+    return filePath;
+  }
+
+  return join(STORAGE_PATH, filePath);
+}
+
 /**
  * Save uploaded file to filesystem
  */
@@ -84,22 +97,23 @@ export async function saveFile(
 
   // Create full file path
   const dirPath = join(STORAGE_PATH, dateDir);
-  const filePath = join(dirPath, uniqueFilename);
+  const fullPath = join(dirPath, uniqueFilename);
 
   // Ensure directory exists
   await fs.mkdir(dirPath, { recursive: true });
 
   // Write file to disk
-  await fs.writeFile(filePath, fileBuffer);
+  await fs.writeFile(fullPath, fileBuffer);
 
-  return filePath;
+  // Store a relative path so retrieval uses STORAGE_PATH consistently
+  return normalize(relative(STORAGE_PATH, fullPath));
 }
 
 /**
  * Get file from filesystem
  */
 export async function getFile(filePath: string): Promise<Buffer> {
-  const fullPath = join(STORAGE_PATH, filePath);
+  const fullPath = resolveStoragePath(filePath);
   return fs.readFile(fullPath);
 }
 
@@ -107,7 +121,7 @@ export async function getFile(filePath: string): Promise<Buffer> {
  * Delete file from filesystem
  */
 export async function deleteFile(filePath: string): Promise<void> {
-  const fullPath = join(STORAGE_PATH, filePath);
+  const fullPath = resolveStoragePath(filePath);
   await fs.unlink(fullPath);
 }
 

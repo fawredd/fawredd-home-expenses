@@ -26,7 +26,8 @@ export function MonthlySummaryTable() {
         const res = await fetch("/api/dashboard/monthly-summary");
         if (!res.ok) throw new Error("Failed to fetch monthly summary");
 
-        const result = await res.json();
+        const payload = await res.json();
+        const result = payload?.data ?? payload;
         setData(result.summary || []);
         setError(null);
       } catch (err) {

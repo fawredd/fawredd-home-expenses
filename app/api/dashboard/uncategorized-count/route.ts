@@ -3,14 +3,20 @@
  * Get count of movements awaiting categorization
  */
 import { NextRequest } from "next/server";
-import { successResponse, errorResponse, Logger } from "@/lib/api-utils";
+import {
+  successResponse,
+  errorResponse,
+  Logger,
+  getCurrentUserId,
+} from "@/lib/api-utils";
 import { countUncategorized } from "@/db/queries";
 
 export async function GET(request: NextRequest) {
   try {
     Logger.info("Fetching uncategorized count");
 
-    const count = await countUncategorized();
+    const userId = getCurrentUserId(request);
+    const count = await countUncategorized(userId);
 
     return successResponse({
       uncategorizedCount: count,

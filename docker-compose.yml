@@ -1,24 +1,25 @@
 services:
   postgres:
-    image: pgvector/pgvector:latest-alpine
-    command: "-c shared_preload_libraries=vector"
-    volumes:
-      - db_data:/var/lib/postgresql/data
-      - ./db/init-pgvector.sql:/docker-entrypoint-initdb.d/01-pgvector.sql
+    image: pgvector/pgvector:pg17
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=fawredd_local
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: fawredd_local
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/init-pgvector.sql:/docker-entrypoint-initdb.d/01-pgvector.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
+
   redis:
     image: redis:alpine
     ports:
       - "6379:6379"
+
 volumes:
   db_data:

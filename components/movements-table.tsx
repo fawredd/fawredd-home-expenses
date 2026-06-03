@@ -28,6 +28,7 @@ interface MovementsTableProps {
 }
 
 export function MovementsTable({ onCategoryEdit }: MovementsTableProps) {
+  // 1. Safeguard: Default state to an empty array instead of leaving it vulnerable to null API payloads
   const [movements, setMovements] = useState<Movement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,9 +72,11 @@ export function MovementsTable({ onCategoryEdit }: MovementsTableProps) {
         const res = await fetch(`/api/dashboard/movements?${params}`);
         if (!res.ok) throw new Error("Failed to fetch movements");
 
-        const data = await res.json();
-        setMovements(data.movements);
-        setTotal(data.total);
+        const payload = await res.json();
+        const data = payload?.data ?? payload;
+        // 2. Safeguard: Fallback to empty array if API responds with data.movements as null/undefined
+        setMovements(data.movements || []);
+        setTotal(data.total || 0);
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unknown error");
@@ -108,7 +111,7 @@ export function MovementsTable({ onCategoryEdit }: MovementsTableProps) {
 
   const totalPages = Math.ceil(total / limit);
 
-  if (loading && movements.length === 0) {
+  if (loading && (!movements || movements.length === 0)) {
     return (
       <div className="space-y-4">
         <div className="h-10 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
@@ -121,6 +124,9 @@ export function MovementsTable({ onCategoryEdit }: MovementsTableProps) {
       </div>
     );
   }
+
+  // 3. Clean condition check: If it doesn't exist, or has 0 items, display the empty state.
+  const hasNoMovements = !movements || movements.length === 0;
 
   return (
     <div className="space-y-4">
@@ -168,8 +174,8 @@ export function MovementsTable({ onCategoryEdit }: MovementsTableProps) {
         </div>
       )}
 
-      {/* Table */}
-      {movements.length === 0 ? (
+      {/* Table Conditional Rendering */}
+      {hasNoMovements ? (
         <div className="p-8 text-center text-slate-500 dark:text-slate-400">
           <p>No hay movimientos para mostrar</p>
         </div>
@@ -232,7 +238,8 @@ export function MovementsTable({ onCategoryEdit }: MovementsTableProps) {
                 </tr>
               </thead>
               <tbody>
-                {movements.map((movement, idx) => (
+                {/* 4. Safeguard: Added optional chaining here just in case */}
+                {movements?.map((movement, idx) => (
                   <tr
                     key={movement.id}
                     className={`border-b border-slate-200 dark:border-slate-700 ${

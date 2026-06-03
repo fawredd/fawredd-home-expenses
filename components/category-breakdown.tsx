@@ -25,7 +25,8 @@ export function CategoryBreakdownTable() {
         const res = await fetch("/api/dashboard/category-breakdown");
         if (!res.ok) throw new Error("Failed to fetch category breakdown");
 
-        const result = await res.json();
+        const payload = await res.json();
+        const result = payload?.data ?? payload;
         setData(result.breakdown || []);
         setError(null);
       } catch (err) {

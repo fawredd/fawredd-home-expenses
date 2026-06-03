@@ -85,7 +85,7 @@ export const documents = appSchema.table(
     uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
     processedAt: timestamp("processed_at"),
     errorMessage: text("error_message"),
-    userId: uuid("user_id"), // For Phase 2: multi-user support
+    userId: varchar("user_id", { length: 255 }), // Clerk user IDs are string-based
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at")
       .notNull()
@@ -229,9 +229,6 @@ export const movements = appSchema.table(
         table.movementType,
       ),
       isReviewedIdx: index("idx_movements_is_reviewed").on(table.isReviewed),
-      dateAndCategoryIdx: index("idx_movements_date_category").on(
-        sql`DATE_TRUNC('month', ${table.transactionDate}), ${table.categoryId}`,
-      ),
     };
   },
 );
@@ -339,7 +336,7 @@ export const processingJobs = appSchema.table(
  */
 export const sessions = appSchema.table("sessions", {
   id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").notNull(),
+  userId: varchar("user_id", { length: 255 }).notNull(),
   token: varchar("token", { length: 255 }).notNull().unique(),
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),

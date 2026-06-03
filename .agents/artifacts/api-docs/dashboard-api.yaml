@@ -156,11 +156,6 @@ paths:
           schema:
             type: string
             format: date
-        - name: includeIncome
-          in: query
-          schema:
-            type: boolean
-            default: false
       responses:
         "200":
           description: Category breakdown
@@ -253,11 +248,17 @@ components:
         currency:
           type: string
           example: "ARS"
-        category:
+        categoryId:
           type: string
+          format: uuid
+          nullable: true
+        categoryName:
+          type: string
+          nullable: true
           example: "Groceries"
         categoryColor:
           type: string
+          nullable: true
           example: "#FFA726"
         movementType:
           type: string
@@ -280,12 +281,6 @@ components:
           format: date
           description: First day of month
           example: "2026-05-01"
-        month:
-          type: integer
-          example: 5
-        year:
-          type: integer
-          example: 2026
         totalIncome:
           type: number
           format: decimal
@@ -300,12 +295,6 @@ components:
           example: 15000.00
         movementCount:
           type: integer
-        changePercent:
-          type: number
-          format: decimal
-          nullable: true
-          description: Month-over-month change %
-          example: 5.5
 
     AnnualSummary:
       type: object
@@ -340,8 +329,9 @@ components:
           example: "Groceries"
         parentCategory:
           type: string
+          format: uuid
           nullable: true
-          example: "Expenses"
+          example: "550e8400-e29b-41d4-a716-446655440000"
         totalAmount:
           type: number
           format: decimal
@@ -378,6 +368,12 @@ components:
         documentCount:
           type: integer
           example: 120
+        processedDocuments:
+          type: integer
+          example: 110
+        categorizedMovements:
+          type: integer
+          example: 140
         categorizedPercent:
           type: number
           format: decimal

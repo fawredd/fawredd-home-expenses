@@ -45,11 +45,14 @@ export function MetricsSummary({ dateRange }: MetricsSummaryProps) {
           throw new Error("Failed to fetch metrics");
         }
 
-        const metricsData = await metricsRes.json();
-        const uncatData = await uncatRes.json();
+        const metricsPayload = await metricsRes.json();
+        const uncatPayload = await uncatRes.json();
 
-        setMetrics(metricsData);
-        setUncategorizedCount(uncatData.uncategorizedCount || 0);
+        const metricsBody = metricsPayload?.data ?? metricsPayload;
+        const uncatBody = uncatPayload?.data ?? uncatPayload;
+
+        setMetrics(metricsBody);
+        setUncategorizedCount(uncatBody?.uncategorizedCount || 0);
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unknown error");
@@ -79,43 +82,52 @@ export function MetricsSummary({ dateRange }: MetricsSummaryProps) {
       <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-2">
         <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
         <span className="text-sm text-red-700 dark:text-red-300">
-          Error al cargar métricas: {error}
+          Error al cargar métricas: {error || "Datos no disponibles"}
         </span>
       </div>
     );
   }
 
+  // 1. Defend against primitive numerical calculations on undefined/null object parameters
+  const income = metrics.totalIncome || 0;
+  const expenses = metrics.totalExpenses || 0;
+  const balance = metrics.balance || 0;
+  const movementCount = metrics.movementCount || 0;
+  const catPercent = metrics.categorizedPercent || 0;
+  const avgConfidence = metrics.averageConfidence || 0;
+
   const metricCards = [
     {
       label: "Ingresos Totales",
-      value: `$${metrics.totalIncome.toLocaleString()}`,
+      value: `$${income.toLocaleString()}`,
       icon: TrendingUp,
       color: "text-green-600 dark:text-green-400",
       bgColor: "bg-green-50 dark:bg-green-900/20",
     },
     {
       label: "Gastos Totales",
-      value: `$${metrics.totalExpenses.toLocaleString()}`,
+      value: `$${expenses.toLocaleString()}`,
       icon: TrendingDown,
       color: "text-red-600 dark:text-red-400",
       bgColor: "bg-red-50 dark:bg-red-900/20",
     },
     {
       label: "Balance",
-      value: `$${metrics.balance.toLocaleString()}`,
-      icon: metrics.balance >= 0 ? TrendingUp : TrendingDown,
+      value: `$${balance.toLocaleString()}`,
+      // 2. Used the local fallback variable instead of direct object lookup to avoid crashing
+      icon: balance >= 0 ? TrendingUp : TrendingDown,
       color:
-        metrics.balance >= 0
+        balance >= 0
           ? "text-blue-600 dark:text-blue-400"
           : "text-orange-600 dark:text-orange-400",
       bgColor:
-        metrics.balance >= 0
+        balance >= 0
           ? "bg-blue-50 dark:bg-blue-900/20"
           : "bg-orange-50 dark:bg-orange-900/20",
     },
     {
       label: "Movimientos",
-      value: metrics.movementCount.toString(),
+      value: movementCount.toString(),
       icon: TrendingUp,
       color: "text-purple-600 dark:text-purple-400",
       bgColor: "bg-purple-50 dark:bg-purple-900/20",
@@ -171,10 +183,10 @@ export function MetricsSummary({ dateRange }: MetricsSummaryProps) {
             Categorización
           </span>
           <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-2">
-            {metrics.categorizedPercent.toFixed(1)}%
+            {catPercent.toFixed(1)}%
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            {metrics.categorizedPercent === 100
+            {catPercent === 100
               ? "Todos los movimientos categorizados"
               : "de movimientos categorizados"}
           </p>
@@ -185,7 +197,7 @@ export function MetricsSummary({ dateRange }: MetricsSummaryProps) {
             Confianza Promedio
           </span>
           <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-2">
-            {(metrics.averageConfidence * 100).toFixed(0)}%
+            {(avgConfidence * 100).toFixed(0)}%
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             en categorizaciones automáticas

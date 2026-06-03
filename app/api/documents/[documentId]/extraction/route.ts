@@ -3,12 +3,17 @@
  * Get extraction results for a document
  */
 import { NextRequest } from "next/server";
-import { successResponse, errorResponse, Logger } from "@/lib/api-utils";
-import { HttpErrors } from "@/lib/api-utils";
+import {
+  successResponse,
+  errorResponse,
+  Logger,
+  parseAndValidateRequest,
+  HttpErrors,
+} from "@/lib/api-utils";
 import { db } from "@/db";
 import { extractions } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { jobQueue } from "@/lib/job-queue";
+import { UpdateExtractionSchema } from "@/lib/types";
 
 export async function GET(
   request: NextRequest,
@@ -60,7 +65,10 @@ export async function PUT(
 ) {
   try {
     const { documentId } = await params;
-    const body = await request.json();
+    const body = await parseAndValidateRequest(
+      request,
+      UpdateExtractionSchema.partial(),
+    );
 
     Logger.info(`Updating extraction for document: ${documentId}`);
 
@@ -72,19 +80,21 @@ export async function PUT(
       throw HttpErrors.notFound("Extraction");
     }
 
-    // Update extraction with validated fields
     const updatedExtraction = await db
       .update(extractions)
       .set({
-        extractedDate: body.extractedDate || extraction.extractedDate,
-        extractedAmount: body.extractedAmount || extraction.extractedAmount,
+        extractedDate: body.extractedDate ?? extraction.extractedDate,
+        extractedAmount:
+          body.extractedAmount !== undefined
+            ? body.extractedAmount.toString()
+            : extraction.extractedAmount,
         extractedCurrency:
-          body.extractedCurrency || extraction.extractedCurrency,
-        extractedVendor: body.extractedVendor || extraction.extractedVendor,
+          body.extractedCurrency ?? extraction.extractedCurrency,
+        extractedVendor: body.extractedVendor ?? extraction.extractedVendor,
         extractedDocumentType:
-          body.extractedDocumentType || extraction.extractedDocumentType,
+          body.extractedDocumentType ?? extraction.extractedDocumentType,
         extractedDescription:
-          body.extractedDescription || extraction.extractedDescription,
+          body.extractedDescription ?? extraction.extractedDescription,
       })
       .where(eq(extractions.id, extraction.id))
       .returning();

@@ -19,6 +19,7 @@ export interface ExtractionData {
   confidenceScores: Record<string, number>;
   overallConfidence: number;
   errors: string[];
+  extractionMethod?: string;
 }
 
 // Regex patterns for extraction
@@ -113,8 +114,12 @@ export function extractFromText(rawText: string): ExtractionData {
   const confidenceScores: Record<string, number> = {};
   let overallConfidence = 0;
 
-  // Clean text
-  const cleanText = rawText.replace(/\s+/g, " ").trim().substring(0, 10000); // Limit to 10k chars
+  // Clean text while preserving line breaks for vendor extraction
+  const cleanText = rawText
+    .replace(/[ \t\v\f\r]+/g, " ")
+    .replace(/\n+/g, "\n")
+    .trim()
+    .substring(0, 10000); // Limit to 10k chars
 
   // Extract date
   let extractedDate: string | undefined;
@@ -211,32 +216,161 @@ export async function extractViaOllama(imageBase64: string): Promise<string> {
 }
 
 /**
- * Main extraction function - tries Ollama first, falls back to regex
+ * Call Ollama to infer structured fields from extracted text
+ */
+async function extractFieldsFromAI(
+  text: string,
+): Promise<Partial<ExtractionData>> {
+  try {
+    const ollamaUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+    const trimmedText = text.trim().substring(0, 4500);
+    const prompt = `Eres un extractor financiero experto. Extrae solo JSON válido con las siguientes claves: extractedDate, extractedAmount, extractedCurrency, extractedVendor, extractedDocumentType, extractedDescription.\n\nTexto del documento:\n${trimmedText}\n\nDevuelve solo JSON.`;
+
+    const response = await fetch(`${ollamaUrl}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "mistral",
+        prompt,
+        stream: false,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Ollama AI field extraction failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const aiText = (data.response || "")
+      .trim()
+      .replace(/^```(?:json)?/, "")
+      .replace(/```$/, "");
+    const parsed = JSON.parse(aiText);
+
+    return {
+      extractedDate:
+        typeof parsed.extractedDate === "string"
+          ? parsed.extractedDate
+          : undefined,
+      extractedAmount:
+        typeof parsed.extractedAmount === "number"
+          ? parsed.extractedAmount
+          : parseAmount(String(parsed.extractedAmount || "")) || undefined,
+      extractedCurrency:
+        typeof parsed.extractedCurrency === "string" &&
+        parsed.extractedCurrency.length > 0
+          ? parsed.extractedCurrency.toUpperCase()
+          : undefined,
+      extractedVendor:
+        typeof parsed.extractedVendor === "string"
+          ? parsed.extractedVendor
+          : undefined,
+      extractedDocumentType:
+        typeof parsed.extractedDocumentType === "string"
+          ? (parsed.extractedDocumentType as
+              | "receipt"
+              | "invoice"
+              | "statement"
+              | "ticket"
+              | "other")
+          : undefined,
+      extractedDescription:
+        typeof parsed.extractedDescription === "string"
+          ? parsed.extractedDescription
+          : undefined,
+    };
+  } catch (error) {
+    console.warn("AI field extraction failed:", error);
+    return {};
+  }
+}
+
+/**
+ * Parse PDF file text using pdf-parse
+ */
+async function extractTextFromPdf(fileBuffer: Buffer): Promise<string> {
+  try {
+    const pdfParse = await import("pdf-parse");
+    const data = await pdfParse.default(fileBuffer);
+    return data.text || "";
+  } catch (error) {
+    console.warn("PDF text extraction failed:", error);
+    return "";
+  }
+}
+
+/**
+ * Main extraction function - tries PDF parsing or OCR first, then AI can enhance missing fields
  */
 export async function extractDocumentData(
   fileBuffer: Buffer,
   mimeType: string,
 ): Promise<ExtractionData> {
   let rawText = "";
+  let extractionMethod = "ocr";
 
-  // Try Ollama for image files
-  if (mimeType.startsWith("image/")) {
+  if (mimeType === "application/pdf") {
+    extractionMethod = "pdf-parse";
+    rawText = await extractTextFromPdf(fileBuffer);
+    if (!rawText) {
+      rawText = "[PDF extraction failed: no text content found]";
+    }
+  } else if (mimeType.startsWith("image/")) {
+    extractionMethod = "ocr";
     try {
       const imageBase64 = fileBuffer.toString("base64");
       rawText = await extractViaOllama(imageBase64);
-    } catch (error) {
-      console.warn("OCR extraction failed, using fallback");
+    } catch {
+      rawText = "";
     }
   }
 
-  // For PDFs or if OCR failed, generate synthetic extraction
   if (!rawText) {
-    // In Phase 2, integrate pdfjs or pdf-parse for PDF extraction
-    rawText = `[PDF Content - Phase 2]\nDocument contains financial information. Manual review recommended.`;
+    rawText = "[No text was extracted from the document.]";
   }
 
-  // Extract structured data from raw text
-  return extractFromText(rawText);
+  let extraction = extractFromText(rawText);
+  extraction.extractionMethod = extractionMethod;
+
+  const needsAiEnhancement =
+    extraction.overallConfidence < 0.75 ||
+    !extraction.extractedVendor ||
+    !extraction.extractedAmount ||
+    !extraction.extractedDate;
+
+  if (needsAiEnhancement) {
+    const aiFields = await extractFieldsFromAI(rawText);
+    extraction = {
+      ...extraction,
+      extractedDate: aiFields.extractedDate || extraction.extractedDate,
+      extractedAmount: aiFields.extractedAmount || extraction.extractedAmount,
+      extractedCurrency:
+        aiFields.extractedCurrency || extraction.extractedCurrency,
+      extractedVendor: aiFields.extractedVendor || extraction.extractedVendor,
+      extractedDocumentType:
+        aiFields.extractedDocumentType || extraction.extractedDocumentType,
+      extractedDescription:
+        aiFields.extractedDescription || extraction.extractedDescription,
+      confidenceScores: {
+        ...extraction.confidenceScores,
+        ...(aiFields.extractedDate ? { date: 0.8 } : {}),
+        ...(aiFields.extractedAmount ? { amount: 0.8 } : {}),
+        ...(aiFields.extractedVendor ? { vendor: 0.75 } : {}),
+      },
+    };
+
+    const mergedScores = Object.values(extraction.confidenceScores);
+    extraction.overallConfidence =
+      mergedScores.length > 0
+        ? Math.round(
+            (mergedScores.reduce((a, b) => a + b, 0) / mergedScores.length) *
+              100,
+          ) / 100
+        : extraction.overallConfidence;
+    extraction.extractionMethod = `${extractionMethod}-ai-enhanced`;
+  }
+
+  return extraction;
 }
 
 /**

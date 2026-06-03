@@ -18,6 +18,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
+        name: "add_task",
+        description:
+          "Appends a new task row to the markdown table in agents-backlog.md",
+        inputSchema: {
+          type: "object",
+          properties: {
+            taskId: {
+              type: "string",
+              description: "The ID of the task, e.g., TASK-032",
+            },
+            title: {
+              type: "string",
+              description: "The summary or description of the task",
+            },
+            status: { 
+              type: "string", 
+              enum: ["TODO", "IN_PROGRESS", "DONE"],
+              default: "TODO"
+            },
+          },
+          required: ["taskId", "title"],
+        },
+      },
+      {
         name: "update_backlog",
         description:
           "Updates the status of a specific task in agents-backlog.md",
@@ -67,6 +91,55 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
+    if (name === "add_task") {
+      const backlogPath = path.resolve(process.cwd(), "agents-backlog.md");
+      const status = args.status || "TODO";
+
+      console.error(`[BACKLOG] Starting task addition`);
+      console.error(`[BACKLOG] File: ${backlogPath}`);
+      console.error(`[BACKLOG] Task: ${args.taskId}`);
+
+      if (!fs.existsSync(backlogPath)) {
+        throw new Error(`Backlog file not found: ${backlogPath}`);
+      }
+
+      const originalContent = fs.readFileSync(backlogPath, "utf-8");
+
+      // Guard check: Avoid duplicating the task ID
+      const exactTaskRegex = new RegExp(`\\|\\s*${args.taskId}\\s*\\|`, "i");
+      if (exactTaskRegex.test(originalContent)) {
+        throw new Error(`Task ${args.taskId} already exists in agents-backlog.md`);
+      }
+
+      // Constructs the new Markdown row adhering to your structure: | TASK-XXX | Description | **STATUS** |
+      const newRow = `| ${args.taskId} | ${args.title} | **${status}** |\n`;
+      
+      // Smart append: Targets the last markdown table line or appends cleanly at the end
+      let updatedContent = originalContent;
+      if (originalContent.trim().endsWith("|")) {
+        updatedContent = originalContent.trimEnd() + "\n" + newRow;
+      } else {
+        updatedContent = originalContent + (originalContent.endsWith("\n") ? "" : "\n") + newRow;
+      }
+
+      fs.writeFileSync(backlogPath, updatedContent, "utf-8");
+
+      console.error(`[BACKLOG] Added ${args.taskId} successfully.`);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              `Task added to backlog successfully.\n` +
+              `Task: ${args.taskId}\n` +
+              `Title: ${args.title}\n` +
+              `Status: ${status}`,
+          },
+        ],
+      };
+    }
+
     if (name === "update_backlog") {
       const backlogPath = path.resolve(process.cwd(), "agents-backlog.md");
 

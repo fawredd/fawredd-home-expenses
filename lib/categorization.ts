@@ -4,7 +4,7 @@
  */
 
 import { db } from "@/db";
-import { categories, movements, ragEmbeddings } from "@/db/schema";
+import { categories, ragEmbeddings } from "@/db/schema";
 import { eq, ilike, sql } from "drizzle-orm";
 import { sanitizeVendorName } from "./extraction";
 
@@ -135,40 +135,42 @@ export async function categorizeByRules(
 }
 
 /**
- * Strategy 2: RAG-based categorization using past movements
+ * Strategy 2: RAG-based categorization using past embeddings
  */
 export async function categorizeByRAG(
-  vendorName: string,
+  vendorName?: string,
+  rawText?: string,
   limit: number = 3,
 ): Promise<CategorizationResult | null> {
-  if (!vendorName) return null;
+  const queryText = (vendorName || rawText || "").trim();
+  if (!queryText) return null;
 
   try {
-    // Look for exact or similar vendor names in past movements
-    const pastMovements = await db
+    const queryEmbedding = generateTextEmbedding(queryText);
+    const queryVector = `[${queryEmbedding.join(",")}]`;
+
+    const results = await db
       .select({
-        vendorName: movements.vendorName,
-        categoryId: movements.categoryId,
+        embeddingId: ragEmbeddings.id,
+        categoryId: ragEmbeddings.categoryId,
         categoryName: categories.name,
-        count: sql<number>`COUNT(*)`,
+        vendorName: ragEmbeddings.vendorName,
+        similarity: sql<number>`(${ragEmbeddings.embedding} <-> ${queryVector}::vector)`,
       })
-      .from(movements)
-      .leftJoin(categories, eq(movements.categoryId, categories.id))
-      .where(ilike(movements.vendorName, `%${vendorName.substring(0, 20)}%`))
-      .groupBy(movements.vendorName, movements.categoryId, categories.name)
-      .orderBy(sql`COUNT(*) DESC`)
+      .from(ragEmbeddings)
+      .leftJoin(categories, eq(ragEmbeddings.categoryId, categories.id))
+      .orderBy(sql`(${ragEmbeddings.embedding} <-> ${queryVector}::vector)`)
       .limit(limit);
 
-    if (pastMovements.length > 0) {
-      // Use the most common category for this vendor
-      const topMatch = pastMovements[0];
+    if (results.length > 0) {
+      const topMatch = results[0];
       if (topMatch.categoryId) {
         return {
           categoryId: topMatch.categoryId,
           categoryName: topMatch.categoryName || undefined,
-          confidence: Math.min(0.7 + (pastMovements.length || 0) * 0.05, 0.95),
+          confidence: Math.min(0.7 + (limit - 1) * 0.02, 0.92),
           method: "rag",
-          explanation: `Found ${pastMovements.length} similar movements`,
+          explanation: `Matched similar vendor memory: ${topMatch.vendorName}`,
         };
       }
     }
@@ -184,29 +186,43 @@ export async function categorizeByRAG(
  * Strategy 3: AI-based categorization using Ollama
  */
 export async function categorizeByAI(
-  vendorName: string,
-  amount: number,
-  date: string,
+  vendorName?: string,
+  amount?: number,
+  date?: string,
+  rawText?: string,
 ): Promise<CategorizationResult | null> {
   try {
     const ollamaUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+    const safeName = vendorName ? sanitizeVendorName(vendorName) : "";
+    const promptParts = [
+      "Eres un clasificador de movimientos financieros para una aplicación de gastos.",
+    ];
 
-    // Sanitize vendor name to prevent injection
-    const safeName = sanitizeVendorName(vendorName);
+    if (safeName) {
+      promptParts.push(`Vendor: ${safeName}`);
+    }
+    if (amount !== undefined && amount !== null) {
+      promptParts.push(`Amount: ${amount} ARS`);
+    }
+    if (date) {
+      promptParts.push(`Date: ${date}`);
+    }
+    if (rawText) {
+      promptParts.push(`Context:
+${rawText.trim().substring(0, 500)}`);
+    }
+
+    promptParts.push(
+      "Available categories: Alimentos, Servicios, Transporte, Salud, Entretenimiento, Ingresos, Gastos, Otros, Sin Categorizar.",
+      "Responde con SOLO el nombre de la categoría más probable, sin explicaciones.",
+    );
 
     const response = await fetch(`${ollamaUrl}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "mistral",
-        prompt: `Categorize this financial transaction. 
-        Vendor: ${safeName}
-        Amount: ${amount} ARS
-        Date: ${date}
-        
-        Available categories: Alimentos, Servicios, Transporte, Salud, Entretenimiento, Ingresos, Gastos, Otros, Sin Categorizar
-        
-        Respond with ONLY the category name, nothing else.`,
+        prompt: promptParts.join("\n"),
         stream: false,
       }),
     });
@@ -227,9 +243,9 @@ export async function categorizeByAI(
         return {
           categoryId: category.id,
           categoryName: category.name,
-          confidence: 0.65, // AI confidence is lower than rules
+          confidence: 0.65,
           method: "ai",
-          explanation: `Categorized by AI: ${categoryName}`,
+          explanation: `Categorized by AI based on ${vendorName ? "vendor" : "document text"}`,
         };
       }
     }
@@ -269,10 +285,10 @@ export async function categorizeMovement(
   vendorName?: string,
   amount?: number,
   date?: string,
+  rawText?: string,
 ): Promise<CategorizationResult> {
   // Try strategies in order: Rules → RAG → AI → Default
 
-  // Strategy 1: Rules
   if (vendorName) {
     const ruleResult = await categorizeByRules(vendorName);
     if (ruleResult && ruleResult.confidence >= 0.85) {
@@ -280,29 +296,21 @@ export async function categorizeMovement(
     }
   }
 
-  // Strategy 2: RAG
-  if (vendorName) {
-    const ragResult = await categorizeByRAG(vendorName);
-    if (ragResult) {
-      return ragResult;
-    }
+  const ragResult = await categorizeByRAG(vendorName, rawText);
+  if (ragResult) {
+    return ragResult;
   }
 
-  // Strategy 3: AI Fallback
-  if (vendorName && amount && date) {
-    const aiResult = await categorizeByAI(vendorName, amount, date);
-    if (aiResult) {
-      return aiResult;
-    }
+  const aiResult = await categorizeByAI(vendorName, amount, date, rawText);
+  if (aiResult) {
+    return aiResult;
   }
 
-  // Strategy 4: Default
   const defaultResult = await getDefaultCategory();
   if (defaultResult) {
     return defaultResult;
   }
 
-  // Fallback (should never reach here)
   return {
     confidence: 0,
     method: "rule",
@@ -310,23 +318,47 @@ export async function categorizeMovement(
   };
 }
 
+function generateTextEmbedding(text: string | null, length = 384): number[] {
+  const normalizedText = text ? text.trim().toLowerCase() : "";
+  const embedding: number[] = [];
+  let hash = 2166136261;
+
+  for (let i = 0; i < normalizedText.length; i++) {
+    hash ^= normalizedText.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  for (let index = 0; index < length; index++) {
+    hash ^= index;
+    hash = Math.imul(hash, 16777619);
+    embedding.push(((hash >>> 0) / 0xffffffff) * 2 - 1);
+  }
+
+  return embedding;
+}
+
 /**
  * Learn from user corrections to improve RAG
  * This function updates the categorization database with successful categorizations
  */
 export async function recordSuccessfulCategorization(
-  vendorName: string,
+  vendorName: string | null,
   categoryId: string,
+  movementId: string,
 ): Promise<void> {
   try {
-    // This could be extended to update RAG embeddings
-    // For now, just log for audit purposes
+    const embedding = generateTextEmbedding(vendorName);
+
+    await db.insert(ragEmbeddings).values({
+      movementId,
+      vendorName: vendorName ?? "",
+      categoryId,
+      embedding,
+    });
+
     console.log(
       `[Learning] Recorded successful categorization: ${vendorName} → ${categoryId}`,
     );
-
-    // TODO: Generate embedding for this vendor-category pair
-    // TODO: Store in ragEmbeddings table
   } catch (error) {
     console.warn("Failed to record successful categorization:", error);
   }

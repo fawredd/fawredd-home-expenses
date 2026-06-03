@@ -6,8 +6,10 @@ import { NextRequest } from "next/server";
 import { successResponse, errorResponse, Logger } from "@/lib/api-utils";
 import { HttpErrors } from "@/lib/api-utils";
 import { db } from "@/db";
-import { movements, categories } from "@/db/schema";
+import { categories, movements, userCorrections } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { UpdateCategorySchema } from "@/lib/types";
+import { recordSuccessfulCategorization } from "@/lib/categorization";
 
 export async function GET(
   request: NextRequest,
@@ -55,8 +57,8 @@ export async function PUT(
 ) {
   try {
     const { movementId } = await params;
-    const body = await request.json();
-    const { categoryId, reason } = body;
+    const rawBody = await request.json();
+    const { categoryId, reason } = UpdateCategorySchema.parse(rawBody);
 
     Logger.info(`Updating category for movement: ${movementId}`, {
       categoryId,
@@ -93,9 +95,32 @@ export async function PUT(
       .where(eq(movements.id, movementId))
       .returning();
 
+    const correctionValues: {
+      movementId: string;
+      newCategoryId: string;
+      oldCategoryId?: string;
+      reason?: string;
+    } = {
+      movementId,
+      newCategoryId: categoryId,
+      reason: reason ?? undefined,
+    };
+
+    if (movement.categoryId) {
+      correctionValues.oldCategoryId = movement.categoryId;
+    }
+
+    await db.insert(userCorrections).values(correctionValues);
+
+    await recordSuccessfulCategorization(
+      movement.vendorName ?? "",
+      categoryId,
+      movementId,
+    );
+
     Logger.info(`Movement category updated`, {
       movementId,
-      oldCategory: movement.categoryId,
+      oldCategory: movement.categoryId ?? undefined,
       newCategory: categoryId,
     });
 

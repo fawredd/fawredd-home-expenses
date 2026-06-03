@@ -3,19 +3,26 @@
  * Get spending by category with percentages
  */
 import { NextRequest } from "next/server";
-import { successResponse, errorResponse, Logger } from "@/lib/api-utils";
+import {
+  successResponse,
+  errorResponse,
+  Logger,
+  getCurrentUserId,
+} from "@/lib/api-utils";
 import { getCategoryBreakdown } from "@/db/queries";
 
 export async function GET(request: NextRequest) {
   try {
     Logger.info("Fetching category breakdown");
 
+    const userId = getCurrentUserId(request);
     const startDate = request.nextUrl.searchParams.get("startDate");
     const endDate = request.nextUrl.searchParams.get("endDate");
 
     const result = await getCategoryBreakdown(
       startDate ? new Date(startDate) : undefined,
       endDate ? new Date(endDate) : undefined,
+      userId,
     );
 
     // Calculate total for percentages
@@ -31,8 +38,12 @@ export async function GET(request: NextRequest) {
       totalAmount: parseFloat(item.totalAmount || "0"),
       percentageOfTotal:
         total > 0
-          ? ((parseFloat(item.totalAmount || "0") / total) * 100).toFixed(1)
-          : "0",
+          ? parseFloat(
+              ((parseFloat(item.totalAmount || "0") / total) * 100).toFixed(
+                1,
+              ),
+            )
+          : 0,
       movementCount: item.movementCount,
       color: item.color,
     }));

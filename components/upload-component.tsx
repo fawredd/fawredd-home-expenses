@@ -12,12 +12,6 @@ interface FileUploadItem {
   error?: string;
 }
 
-export function DocumentUploadComponent() {
-  const [uploads, setUploads] = useState<FileUploadItem[]>([]);
-  const [isDragActive, setIsDragActive] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const dragCounter = useRef(0);
-
   const ALLOWED_TYPES = ["application/pdf", "image/jpeg", "image/png"];
   const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
   const MAX_FILES = 5;
@@ -37,6 +31,12 @@ export function DocumentUploadComponent() {
     }
     return { valid: true };
   };
+  
+export function DocumentUploadComponent() {
+  const [uploads, setUploads] = useState<FileUploadItem[]>([]);
+  const [isDragActive, setIsDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounter = useRef(0);
 
   const handleFiles = async (files: File[]) => {
     if (uploads.length + files.length > MAX_FILES) {

@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { Moon, Sun, Menu } from "lucide-react";
+import { SignOutButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 
 interface DashboardLayoutProps {
@@ -51,6 +52,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                     <Moon className="w-5 h-5" />
                   )}
                 </button>
+
+                <SignOutButton>
+                  <button className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                    Cerrar sesión
+                  </button>
+                </SignOutButton>
 
                 {/* Mobile Menu Button */}
                 <button

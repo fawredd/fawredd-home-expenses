@@ -2,8 +2,9 @@
  * API response and error handling utilities
  */
 import { NextResponse } from "next/server";
+import { getAuth } from "@clerk/nextjs/server";
 import { AppError, ErrorCodes, type ApiResponse } from "./types";
-import { ZodError } from "zod";
+import { ZodError, z } from "zod";
 
 /**
  * Success response helper
@@ -82,6 +83,37 @@ export function validationErrorResponse(
   );
 }
 
+const UserIdHeaderSchema = z.string().trim().min(1);
+
+export function getCurrentUserId(request: Request): string {
+  const auth = getAuth(request as unknown as Parameters<typeof getAuth>[0]);
+  if (auth.userId) {
+    return auth.userId;
+  }
+
+  const headerValue = request.headers.get("x-user-id")?.trim();
+  if (headerValue) {
+    const parsed = UserIdHeaderSchema.safeParse(headerValue);
+    if (parsed.success) {
+      return parsed.data;
+    }
+    throw HttpErrors.badRequest("Invalid x-user-id header");
+  }
+
+  const envUserId = process.env.DEFAULT_USER_ID?.trim();
+  if (envUserId) {
+    const parsed = UserIdHeaderSchema.safeParse(envUserId);
+    if (parsed.success) {
+      return parsed.data;
+    }
+    throw HttpErrors.internalError(
+      "DEFAULT_USER_ID must be a valid non-empty string",
+    );
+  }
+
+  throw HttpErrors.unauthorized();
+}
+
 /**
  * Wrap async route handlers with error handling
  */
@@ -146,17 +178,33 @@ export const HttpErrors = {
  */
 export const Logger = {
   info: (message: string, data?: unknown) => {
-    console.log(`[INFO] ${message}`, data);
+    if (data === undefined) {
+      console.log(`[INFO] ${message}`);
+    } else {
+      console.log(`[INFO] ${message}`, data);
+    }
   },
   warn: (message: string, data?: unknown) => {
-    console.warn(`[WARN] ${message}`, data);
+    if (data === undefined) {
+      console.warn(`[WARN] ${message}`);
+    } else {
+      console.warn(`[WARN] ${message}`, data);
+    }
   },
   error: (message: string, error?: unknown) => {
-    console.error(`[ERROR] ${message}`, error);
+    if (error === undefined) {
+      console.error(`[ERROR] ${message}`);
+    } else {
+      console.error(`[ERROR] ${message}`, error);
+    }
   },
   debug: (message: string, data?: unknown) => {
     if (process.env.NODE_ENV === "development") {
-      console.debug(`[DEBUG] ${message}`, data);
+      if (data === undefined) {
+        console.debug(`[DEBUG] ${message}`);
+      } else {
+        console.debug(`[DEBUG] ${message}`, data);
+      }
     }
   },
 };

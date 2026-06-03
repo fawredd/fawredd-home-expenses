@@ -3,15 +3,24 @@
  * Get monthly income, expense, and balance summary
  */
 import { NextRequest } from "next/server";
-import { successResponse, errorResponse, Logger } from "@/lib/api-utils";
+import {
+  successResponse,
+  errorResponse,
+  Logger,
+  getCurrentUserId,
+} from "@/lib/api-utils";
 import { getMonthlySummary } from "@/db/queries";
 
 export async function GET(request: NextRequest) {
   try {
     Logger.info("Fetching monthly summary");
 
+    const userId = getCurrentUserId(request);
     const year = request.nextUrl.searchParams.get("year");
-    const result = await getMonthlySummary(year ? parseInt(year) : undefined);
+    const result = await getMonthlySummary(
+      year ? parseInt(year) : undefined,
+      userId,
+    );
 
     return successResponse({
       summary: result.map((row) => ({

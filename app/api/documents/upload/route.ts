@@ -3,7 +3,12 @@
  * Upload one or multiple financial documents
  */
 import { NextRequest } from "next/server";
-import { successResponse, errorResponse, Logger } from "@/lib/api-utils";
+import {
+  successResponse,
+  errorResponse,
+  Logger,
+  getCurrentUserId,
+} from "@/lib/api-utils";
 import { HttpErrors } from "@/lib/api-utils";
 import { db } from "@/db";
 import { documents, extractions, movements } from "@/db/schema";
@@ -13,12 +18,10 @@ import {
   validateFile,
   validateMagicBytes,
   saveFile,
-  generateUniqueFilename,
-  getDateSubdirectory,
+  getFile,
 } from "@/lib/file-utils";
 import { extractDocumentData } from "@/lib/extraction";
 import { categorizeMovement } from "@/lib/categorization";
-import { join } from "path";
 
 // Register extraction job handler
 jobQueue.registerHandler("extract", async (job) => {
@@ -32,79 +35,62 @@ jobQueue.registerHandler("extract", async (job) => {
 
     if (!doc) throw new Error(`Document ${documentId} not found`);
 
-    // Update status to processing
     await db
       .update(documents)
-      .set({ processingStatus: "processing" })
+      .set({ processingStatus: "extracting" })
       .where(eq(documents.id, documentId));
 
-    // In Phase 2: implement actual file reading and OCR
-    // For now: simulate extraction with sample data
-    const sampleExtraction = {
-      rawText: "SUPERMERCADO CARREFOUR\n28/05/2026\nCompra: $1,250.50",
-      extractedDate: "2026-05-28",
-      extractedAmount: 1250.5,
-      extractedCurrency: "ARS",
-      extractedVendor: "CARREFOUR EXPRESSS",
-      extractedDocumentType: "receipt" as const,
-      confidenceScores: { date: 0.95, amount: 0.9, vendor: 0.85 },
-      overallConfidence: 0.9,
-      errors: [],
-    };
+    const fileBuffer = await getFile(doc.filePath);
+    const extractionData = await extractDocumentData(fileBuffer, doc.mimeType);
 
-    // Store extraction
     const extractionRecord = await db
       .insert(extractions)
       .values({
         documentId,
-        rawOcrText: sampleExtraction.rawText,
-        extractedDate: sampleExtraction.extractedDate,
-        extractedAmount: sampleExtraction.extractedAmount
-          ? sampleExtraction.extractedAmount.toString()
+        rawOcrText: extractionData.rawText,
+        extractedDate: extractionData.extractedDate,
+        extractedAmount: extractionData.extractedAmount
+          ? extractionData.extractedAmount.toString()
           : null,
-        extractedCurrency: sampleExtraction.extractedCurrency,
-        extractedVendor: sampleExtraction.extractedVendor,
-        extractedDocumentType: sampleExtraction.extractedDocumentType,
-        confidenceScores: sampleExtraction.confidenceScores,
-        overallConfidence: sampleExtraction.overallConfidence.toString(),
+        extractedCurrency: extractionData.extractedCurrency,
+        extractedVendor: extractionData.extractedVendor,
+        extractedDocumentType: extractionData.extractedDocumentType,
+        confidenceScores: extractionData.confidenceScores,
+        overallConfidence: extractionData.overallConfidence.toString(),
+        extractionErrors: extractionData.errors,
+        extractionMethod: extractionData.extractionMethod,
       })
       .returning();
 
-    // Auto-categorize if we have vendor + date + amount
-    if (sampleExtraction.extractedVendor && sampleExtraction.extractedDate) {
+    if (extractionData.extractedDate && extractionData.extractedAmount) {
       const categorization = await categorizeMovement(
-        sampleExtraction.extractedVendor,
-        sampleExtraction.extractedAmount,
-        sampleExtraction.extractedDate,
+        extractionData.extractedVendor,
+        extractionData.extractedAmount,
+        extractionData.extractedDate,
+        extractionData.rawText,
       );
 
-      // Create movement
-      const movementRecord = await db
-        .insert(movements)
-        .values({
-          documentId,
-          extractionId: extractionRecord[0].id,
-          categoryId: categorization.categoryId,
-          vendorName: sampleExtraction.extractedVendor,
-          amount: sampleExtraction.extractedAmount.toString(),
-          currency: sampleExtraction.extractedCurrency,
-          transactionDate: sampleExtraction.extractedDate,
-          movementType:
-            sampleExtraction.extractedAmount > 0 ? "expense" : "income",
-          description: `Auto-categorized via ${categorization.method}`,
-          categorizationMethod: categorization.method,
-          confidenceScore: categorization.confidence.toString(),
-        })
-        .returning();
+      await db.insert(movements).values({
+        documentId,
+        extractionId: extractionRecord[0].id,
+        categoryId: categorization.categoryId,
+        vendorName: extractionData.extractedVendor,
+        amount: extractionData.extractedAmount.toString(),
+        currency: extractionData.extractedCurrency,
+        transactionDate: extractionData.extractedDate,
+        movementType: extractionData.extractedAmount > 0 ? "expense" : "income",
+        description: `Auto-categorized via ${categorization.method}`,
+        categorizationMethod: categorization.method,
+        confidenceScore: categorization.confidence.toString(),
+      });
 
       Logger.info(`Movement created from extraction`, {
-        movementId: movementRecord[0].id,
+        documentId,
         categoryId: categorization.categoryId,
         confidence: categorization.confidence,
       });
     }
 
-    // Update document status
     await db
       .update(documents)
       .set({ processingStatus: "completed" })
@@ -128,6 +114,7 @@ export async function POST(request: NextRequest) {
   try {
     Logger.info("Document upload request received");
 
+    const userId = getCurrentUserId(request);
     const formData = await request.formData();
     const files = formData.getAll("files") as File[];
 
@@ -175,6 +162,7 @@ export async function POST(request: NextRequest) {
           filePath: storagePath,
           uploadStatus: "uploaded",
           processingStatus: "pending",
+          userId,
         })
         .returning();
 

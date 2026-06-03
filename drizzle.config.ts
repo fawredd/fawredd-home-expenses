@@ -4,6 +4,7 @@ export default {
   dialect: "postgresql",
   schema: "./db/schema.ts",
   out: "./db/migrations",
+schemaFilter: ['fawredd_home_expenses'],
   dbCredentials: {
     url:
       process.env.DATABASE_URL ||

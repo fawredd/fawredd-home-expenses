@@ -1,6 +1,6 @@
 # PROJECT STATE — Fawredd Home Expenses
 
-**Last Updated:** 2026-05-29
+**Last Updated:** 2026-06-01
 **Current Phase:** MVP Phase 1e — CI + QA
 **Next Agent:** CI Engineer → TASK-025
 **Audited:** Yes — PM re-audited 2026-05-29, all Phase 1c routes confirmed complete
@@ -184,6 +184,32 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 
 ---
 
+## [TASK-034] — Full PDF extraction + AI/RAG categorization flow
+- Status: DONE
+- Date: 2026-06-01
+- Summary: Implemented real PDF extraction using `pdf-parse`, added Ollama AI fallback for incomplete extraction fields, and upgraded RAG memory retrieval in `lib/categorization.ts` to use vector similarity embeddings.
+- Decisions:
+  - Kept image OCR via Ollama, and used AI only when extraction confidence is low or fields are missing
+  - Stored extraction metadata including `extractionMethod` and detailed confidence scores
+  - Added deterministic vector embeddings for vendor/text similarity to improve future RAG categorization
+- Pending: None
+- Next Agent: CI Engineer → TASK-025
+
+---
+
+## [TASK-035] — Clerk authentication + sign-in flow
+- Status: DONE
+- Date: 2026-06-01
+- Summary: Integrated Clerk into the app and API layer for email and Google authentication. Added `proxy.ts`, wrapped the app in `ClerkProvider`, protected `app/page.tsx` with Clerk auth, and created `/sign-in` and `/sign-up` pages.
+- Decisions:
+  - Used Clerk session auth for API route identity and dashboard access
+  - Kept the existing `x-user-id`/`DEFAULT_USER_ID` fallback for non-Clerk or local dev access
+  - Added a `SignOutButton` in the dashboard layout
+- Pending: None
+- Next Agent: CI Engineer → TASK-025
+
+---
+
 ## [TASK-029] — Fix TypeScript errors
 - Status: DONE
 - Agent: Backend Dev
@@ -250,3 +276,75 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 - Summary: Verified all Phase 1c/1d/1e tasks are complete. Ran `pnpm lint && pnpm typecheck` — 0 TypeScript errors, 27 non-blocking warnings. Project ready for Phase 2 or deployment.
 - Decisions: Confirmed Phase 1 MVP completion. All infrastructure (TASK-031, TASK-032), backend logic (TASK-016-019b), frontend components (TASK-020-024), and QA (TASK-025-027) are DONE. No blocking issues.
 - Pending: Phase 2 roadmap: TASK-100 (pg-boss), TASK-101 (PDF extraction), TASK-102 (RAG embeddings), TASK-103 (multi-user auth). Lint cleanup recommended (1h effort) but non-blocking for deployment.
+
+---
+
+## [TASK-016] — Document Upload API — wiring and job enqueue
+- Status: DONE
+- Date: 2026-06-01
+- Summary: Wired `app/api/documents/upload/route.ts` to existing business logic: `lib/file-utils.ts` for magic-bytes validation and disk saving, and `lib/job-queue.ts` for enqueuing and processing extraction jobs. Registered an 'extract' handler that updates document processingStatus, creates extraction + movement records (simulated sample extraction in Phase 1), and sets final status. Ran `pnpm lint && tsc --noEmit` — 0 type errors, 27 lint warnings (non-blocking).
+- Decisions: Kept in-memory job queue for Phase 1 to avoid pg-boss complexity; magic-bytes validation enforced in route before saving; extraction job handler simulates extraction results per Phase 1 design.
+- Pending: Migrate job-queue to `pg-boss` in Phase 2 (TASK-100); optionally remove or address lint warnings in a cleanup pass.
+
+---
+
+## [TASK-017] — Extraction Pipeline
+- Status: DONE
+- Date: 2026-06-01
+- Summary: Wired document extraction route payload validation with Zod before updating extraction records and maintained existing GET behavior.
+- Decisions: Used UpdateExtractionSchema.partial() for safe partial updates and Drizzle decimal column conversion to string for extractedAmount.
+- Pending: None for TASK-017; Phase 2 PDF extraction still deferred in lib/extraction.ts.
+
+---
+
+## [TASK-018] — Categorization route wiring and RAG learning
+- Status: DONE
+- Date: 2026-06-01
+- Summary: Added Zod validation and user correction persistence to movement category correction route. Implemented recordSuccessfulCategorization() to generate deterministic embeddings and store correction records in rag_embeddings.
+- Decisions: Chose to capture manual corrections as both audit records and RAG learning artifacts. Used a stable pseudo-embedding generator for Phase 1 to populate pgvector storage without adding a new external embedding service.
+- Pending: No pending changes for TASK-018; future Phase 2 work can replace pseudo-embeddings with a real model-based embedding service.
+
+---
+
+## [TASK-019] — Wire database dashboard queries and user filtering
+- Status: DONE
+- Date: 2026-06-01
+- Summary: Wired all dashboard API routes to db/queries.ts and added user_id filtering via current user context. Created shared query builders for movements, monthly summary, annual summary, category breakdown, metrics, and uncategorized count. Added optional DEFAULT_USER_ID support and local X-User-Id request parsing.
+- Decisions: Used document-level user scoping through documents.user_id joined to movements. Kept dashboard metrics in db/queries.ts so routes remain thin and consistent. Enforced current user identity via request header fallback to DEFAULT_USER_ID for Phase 1 single-user development.
+- Pending: No pending work for TASK-019; existing lint warnings are unrelated to this task.
+
+---
+
+## [TASK-036] — Fix Clerk user ID type mismatch in dashboard queries
+- Status: DONE
+- Date: 2026-06-01
+- Summary: Dashboard API routes were failing because Clerk auth user IDs are string-based while the DB schema expected UUIDs. Updated documents.user_id and sessions.user_id to varchar, relaxed current user id validation to accept non-empty strings, and aligned the initial SQL migration with string-based user IDs.
+- Decisions: Clerk user IDs do not use UUID formatting, so dashboard user filtering must use varchar storage and generic string validation instead of UUID enforcement.
+- Pending: No pending work for this fix; runtime behavior now matches Clerk user identity semantics.
+
+---
+
+## [TASK-037] — Fix document extraction storage path bug
+- Status: DONE
+- Date: 2026-06-02
+- Summary: Resolved a runtime path bug in lib/file-utils.ts where saved file paths were stored with the storage prefix and later re-prefixed during retrieval, causing ENOENT errors. Updated storage path resolution to return a consistent relative path and correctly resolve files for getFile/deleteFile.
+- Decisions: Retained relative storage path semantics for persistence and added a robust resolver to support both legacy prefixed paths and normalized relative paths. No route logic changes were required.
+- Pending: None
+
+---
+
+## [TASK-038] — Fix RAG vector query runtime failure
+- Status: DONE
+- Date: 2026-06-02
+- Summary: Resolved a runtime pgvector operator mismatch in `lib/categorization.ts` by casting generated embedding literals to `vector` before similarity comparison. Also improved `Logger` output formatting to avoid printing undefined metadata.
+- Decisions: Kept the existing deterministic pseudo-embedding generator; applied explicit `::vector` cast on the query input to match pgvector operator expectations. Adjusted logging utility to omit undefined payloads.
+- Pending: None
+
+---
+
+## [TASK-040] — Fix document upload missing userId on documents
+- Status: DONE
+- Date: 2026-06-02
+- Summary: Persist authenticated userId when inserting uploaded documents so dashboard user-scoped queries can return movements and metrics for the current user.
+- Decisions: Added getCurrentUserId() to app/api/documents/upload/route.ts and stored userId on document insert. No database schema changes required because documents.userId already exists.
+- Pending: None. Validation passed with lint and typecheck.

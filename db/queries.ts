@@ -3,7 +3,7 @@
  */
 import { db } from "./index";
 import { movements, categories, extractions, documents } from "./schema";
-import { and, sql, desc, gte, lte, inArray } from "drizzle-orm";
+import { and, sql, desc, gte, lte, inArray, eq, isNull } from "drizzle-orm";
 
 /**
  * Dashboard query builder - Get movements with filters
@@ -20,6 +20,7 @@ export async function getDashboardMovements({
   sortOrder = "desc",
   limit = 50,
   offset = 0,
+  userId,
 }: {
   startDate?: Date;
   endDate?: Date;
@@ -32,6 +33,7 @@ export async function getDashboardMovements({
   sortOrder?: "asc" | "desc";
   limit?: number;
   offset?: number;
+  userId?: string;
 }) {
   const conditions = [];
 
@@ -59,6 +61,10 @@ export async function getDashboardMovements({
 
   if (movementType && movementType !== "all") {
     conditions.push(sql`${movements.movementType} = ${movementType}`);
+  }
+
+  if (userId) {
+    conditions.push(eq(documents.userId, userId));
   }
 
   let orderBy;
@@ -99,6 +105,7 @@ export async function getDashboardMovements({
       description: movements.description,
     })
     .from(movements)
+    .innerJoin(documents, sql`${movements.documentId} = ${documents.id}`)
     .leftJoin(categories, sql`${movements.categoryId} = ${categories.id}`);
 
   if (conditions.length > 0) {
@@ -108,6 +115,7 @@ export async function getDashboardMovements({
   const total = await db
     .select({ count: sql<number>`count(*)` })
     .from(movements)
+    .innerJoin(documents, sql`${movements.documentId} = ${documents.id}`)
     .where(conditions.length > 0 ? and(...conditions) : undefined);
 
   const result = await query.orderBy(orderBy).limit(limit).offset(offset);
@@ -121,7 +129,16 @@ export async function getDashboardMovements({
 /**
  * Get monthly summary
  */
-export async function getMonthlySummary(year?: number) {
+export async function getMonthlySummary(year?: number, userId?: string) {
+  const conditions = [];
+  if (userId) {
+    conditions.push(eq(documents.userId, userId));
+  }
+  if (year) {
+    conditions.push(gte(movements.transactionDate, `${year}-01-01`));
+    conditions.push(lte(movements.transactionDate, `${year}-12-31`));
+  }
+
   const query = db
     .select({
       yearMonth: sql<string>`DATE_TRUNC('month', ${movements.transactionDate})`,
@@ -131,6 +148,8 @@ export async function getMonthlySummary(year?: number) {
       movementCount: sql<number>`COUNT(*)`,
     })
     .from(movements)
+    .innerJoin(documents, sql`${movements.documentId} = ${documents.id}`)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
     .groupBy(sql`DATE_TRUNC('month', ${movements.transactionDate})`)
     .orderBy(desc(sql`DATE_TRUNC('month', ${movements.transactionDate})`))
     .limit(24);
@@ -138,10 +157,105 @@ export async function getMonthlySummary(year?: number) {
   return query;
 }
 
+export async function getAnnualSummary(userId?: string) {
+  const conditions = [];
+  if (userId) {
+    conditions.push(eq(documents.userId, userId));
+  }
+
+  return db
+    .select({
+      year: sql<string>`TO_CHAR(${movements.transactionDate}, 'YYYY')`,
+      totalIncome: sql<string>`COALESCE(SUM(CASE WHEN ${movements.movementType} = 'income' THEN ${movements.amount} ELSE 0 END)::TEXT, '0')`,
+      totalExpenses: sql<string>`COALESCE(SUM(CASE WHEN ${movements.movementType} = 'expense' THEN ${movements.amount} ELSE 0 END)::TEXT, '0')`,
+      movementCount: sql<string>`COUNT(*)::TEXT`,
+    })
+    .from(movements)
+    .innerJoin(documents, sql`${movements.documentId} = ${documents.id}`)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .groupBy(sql`TO_CHAR(${movements.transactionDate}, 'YYYY')`)
+    .orderBy(sql`TO_CHAR(${movements.transactionDate}, 'YYYY') DESC`);
+}
+
+export async function getDashboardMetrics({
+  userId,
+  startDate,
+  endDate,
+}: {
+  userId?: string;
+  startDate?: Date;
+  endDate?: Date;
+}) {
+  const movementConditions = [];
+  const documentConditions = [];
+
+  if (userId) {
+    movementConditions.push(eq(documents.userId, userId));
+    documentConditions.push(eq(documents.userId, userId));
+  }
+
+  if (startDate) {
+    movementConditions.push(
+      gte(movements.transactionDate, startDate.toISOString().split("T")[0]),
+    );
+    documentConditions.push(gte(documents.uploadedAt, startDate));
+  }
+
+  if (endDate) {
+    movementConditions.push(
+      lte(movements.transactionDate, endDate.toISOString().split("T")[0]),
+    );
+    documentConditions.push(lte(documents.uploadedAt, endDate));
+  }
+
+  const financialMetrics = await db
+    .select({
+      totalIncome: sql<string>`COALESCE(SUM(CASE WHEN ${movements.movementType} = 'income' THEN ${movements.amount} ELSE 0 END)::TEXT, '0')`,
+      totalExpenses: sql<string>`COALESCE(SUM(CASE WHEN ${movements.movementType} = 'expense' THEN ${movements.amount} ELSE 0 END)::TEXT, '0')`,
+      movementCount: sql<string>`COUNT(*)::TEXT`,
+    })
+    .from(movements)
+    .innerJoin(documents, sql`${movements.documentId} = ${documents.id}`)
+    .where(
+      movementConditions.length > 0 ? and(...movementConditions) : undefined,
+    );
+
+  const documentMetrics = await db
+    .select({
+      documentCount: sql<string>`COUNT(*)::TEXT`,
+      processedCount: sql<string>`COUNT(CASE WHEN processing_status = 'completed' THEN 1 END)::TEXT`,
+    })
+    .from(documents)
+    .where(
+      documentConditions.length > 0 ? and(...documentConditions) : undefined,
+    );
+
+  const categorizationMetrics = await db
+    .select({
+      categorizedCount: sql<string>`COUNT(CASE WHEN category_id IS NOT NULL THEN 1 END)::TEXT`,
+      averageConfidence: sql<string>`COALESCE(AVG(confidence_score)::TEXT, '0')`,
+    })
+    .from(movements)
+    .innerJoin(documents, sql`${movements.documentId} = ${documents.id}`)
+    .where(
+      movementConditions.length > 0 ? and(...movementConditions) : undefined,
+    );
+
+  return {
+    financialMetrics: financialMetrics[0],
+    documentMetrics: documentMetrics[0],
+    categorizationMetrics: categorizationMetrics[0],
+  };
+}
+
 /**
  * Get category breakdown
  */
-export async function getCategoryBreakdown(startDate?: Date, endDate?: Date) {
+export async function getCategoryBreakdown(
+  startDate?: Date,
+  endDate?: Date,
+  userId?: string,
+) {
   const conditions = [];
   if (startDate)
     conditions.push(
@@ -151,6 +265,9 @@ export async function getCategoryBreakdown(startDate?: Date, endDate?: Date) {
     conditions.push(
       lte(movements.transactionDate, endDate.toISOString().split("T")[0]),
     );
+  if (userId) {
+    conditions.push(eq(documents.userId, userId));
+  }
 
   const result = await db
     .select({
@@ -162,6 +279,7 @@ export async function getCategoryBreakdown(startDate?: Date, endDate?: Date) {
       color: categories.color,
     })
     .from(movements)
+    .innerJoin(documents, sql`${movements.documentId} = ${documents.id}`)
     .innerJoin(categories, sql`${movements.categoryId} = ${categories.id}`)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .groupBy(
@@ -178,13 +296,17 @@ export async function getCategoryBreakdown(startDate?: Date, endDate?: Date) {
 /**
  * Count uncategorized movements
  */
-export async function countUncategorized() {
+export async function countUncategorized(userId?: string) {
+  const conditions = [isNull(movements.categoryId)];
+  if (userId) {
+    conditions.push(eq(documents.userId, userId));
+  }
+
   const result = await db
     .select({ count: sql<number>`count(*)` })
     .from(movements)
-    .where(
-      sql`${movements.categoryId} IS NULL OR ${movements.categoryId} = ''`,
-    );
+    .innerJoin(documents, sql`${movements.documentId} = ${documents.id}`)
+    .where(and(...conditions));
 
   return result[0]?.count || 0;
 }

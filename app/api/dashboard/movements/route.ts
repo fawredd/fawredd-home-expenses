@@ -3,13 +3,19 @@
  * Get filtered list of movements for dashboard table
  */
 import { NextRequest } from "next/server";
-import { successResponse, errorResponse, Logger } from "@/lib/api-utils";
+import {
+  successResponse,
+  errorResponse,
+  Logger,
+  getCurrentUserId,
+} from "@/lib/api-utils";
 import { getDashboardMovements } from "@/db/queries";
 
 export async function GET(request: NextRequest) {
   try {
     Logger.info("Fetching dashboard movements");
 
+    const userId = getCurrentUserId(request);
     const searchParams = request.nextUrl.searchParams;
 
     const filters = {
@@ -41,7 +47,7 @@ export async function GET(request: NextRequest) {
       offset: parseInt(searchParams.get("offset") || "0"),
     };
 
-    const result = await getDashboardMovements(filters);
+    const result = await getDashboardMovements({ ...filters, userId });
 
     return successResponse({
       total: result.total,
