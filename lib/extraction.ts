@@ -24,20 +24,21 @@ export interface ExtractionData {
 
 // Regex patterns for extraction
 const PATTERNS = {
-  // Date patterns (DD/MM/YYYY, DD-MM-YYYY, etc.)
   date: /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/g,
-
-  // Amount patterns (with currency symbols and decimals)
-  amount: /[\$€¥₹₽][.\s]?\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{2})?)/g,
-
-  // Vendor/merchant names (usually all caps or title case)
-  vendor: /^([A-Z][A-Za-z\s&]{3,50})$/gm,
-
-  // Common keywords
+  amountSymbol:
+    /(?:[$€¥₹₽]|ARS|USD|EUR|UYU|US\$|U\$S)\s*[0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{2})?/gi,
+  amount: /[0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{2})?/g,
+  vendor: /^([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ\s&]{3,60})$/gm,
   invoice: /invoice|recibo|factura|comprobante/i,
   receipt: /receipt|ticket|recibo|boleta/i,
   statement: /statement|estado de cuenta|extracto/i,
   ticket: /ticket|boleta|tique/i,
+};
+
+const LABELS = {
+  amount: /total|importe|monto|saldo|neto|subtotal|pagado|debe|haber/i,
+  date: /fecha|vencimiento|emisión|emision|expedido|emitido/i,
+  vendor: /raz[oó]n social|proveedor|emisor|empresa|comercio|sucursal/i,
 };
 
 /**
@@ -77,16 +78,84 @@ function parseDate(dateStr: string): string | null {
  * Parse amount from various formats
  */
 function parseAmount(amountStr: string): number | null {
-  // Remove currency symbols and whitespace
   let cleaned = amountStr.replace(/[\$€¥₹₽\s]/g, "");
-
-  // Replace European decimal separator
   if (cleaned.includes(",")) {
-    cleaned = cleaned.replace(".", "").replace(",", ".");
+    cleaned = cleaned.replace(/\.(?=.*?,)/g, "").replace(/,/g, ".");
   }
 
   const amount = parseFloat(cleaned);
   return !isNaN(amount) && amount > 0 ? amount : null;
+}
+
+function extractCurrency(line: string): string | undefined {
+  const normalized = line.toUpperCase();
+  if (normalized.includes("USD") || normalized.includes("US$")) return "USD";
+  if (normalized.includes("EUR") || normalized.includes("€")) return "EUR";
+  if (normalized.includes("UYU")) return "UYU";
+  if (normalized.includes("ARS") || normalized.includes("$")) return "ARS";
+  return undefined;
+}
+
+function extractAmountFromLine(line: string): number | undefined {
+  const symbolMatch = line.match(PATTERNS.amountSymbol);
+  if (symbolMatch) {
+    for (const match of symbolMatch) {
+      const parsed = parseAmount(match);
+      if (parsed) return parsed;
+    }
+  }
+
+  const amountMatch = line.match(PATTERNS.amount);
+  if (amountMatch) {
+    for (const match of amountMatch.reverse()) {
+      const parsed = parseAmount(match);
+      if (parsed) return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+function findBestDate(lines: string[]): string | undefined {
+  for (const line of lines) {
+    if (LABELS.date.test(line)) {
+      const match = line.match(PATTERNS.date);
+      if (match) {
+        return parseDate(match[0]) || undefined;
+      }
+    }
+  }
+
+  for (const line of lines) {
+    const match = line.match(PATTERNS.date);
+    if (match) {
+      return parseDate(match[0]) || undefined;
+    }
+  }
+
+  return undefined;
+}
+
+function findBestVendor(lines: string[]): string | undefined {
+  const candidate = lines.find((line) => LABELS.vendor.test(line));
+  if (candidate) {
+    const parts = candidate.split(/[:\-–]/);
+    return parts.length > 1
+      ? parts.slice(1).join(" ").trim()
+      : candidate.trim();
+  }
+
+  const topLines = lines.slice(0, 8).filter(Boolean);
+  const vendorLine = topLines.find(
+    (line) =>
+      /^[A-ZÁÉÍÓÚÑ]/.test(line) &&
+      !LABELS.date.test(line) &&
+      !LABELS.amount.test(line) &&
+      !/cuit|cuil|telefono|tel\.|nro\.|direcci[oó]n|domicilio/i.test(line),
+  );
+  if (vendorLine) return vendorLine.trim();
+
+  return topLines[0]?.trim();
 }
 
 /**
@@ -114,72 +183,83 @@ export function extractFromText(rawText: string): ExtractionData {
   const confidenceScores: Record<string, number> = {};
   let overallConfidence = 0;
 
-  // Clean text while preserving line breaks for vendor extraction
   const cleanText = rawText
     .replace(/[ \t\v\f\r]+/g, " ")
     .replace(/\n+/g, "\n")
     .trim()
-    .substring(0, 10000); // Limit to 10k chars
+    .substring(0, 10000);
 
-  // Extract date
-  let extractedDate: string | undefined;
-  const dateMatches = cleanText.match(PATTERNS.date);
-  if (dateMatches) {
-    extractedDate = parseDate(dateMatches[0]) || undefined;
-    confidenceScores.date = extractedDate ? 0.85 : 0;
+  const lines = cleanText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  let extractedDate = findBestDate(lines);
+  if (!extractedDate) {
+    const dateMatches = cleanText.match(PATTERNS.date);
+    extractedDate = dateMatches
+      ? parseDate(dateMatches[0]) || undefined
+      : undefined;
+  }
+  if (extractedDate) {
+    confidenceScores.date = 0.9;
   } else {
     errors.push("No date found");
     confidenceScores.date = 0;
   }
 
-  // Extract amount
-  let extractedAmount: number | undefined;
-  const amountMatches = cleanText.match(PATTERNS.amount);
-  if (amountMatches) {
-    const parsed = parseAmount(amountMatches[0]);
-    if (parsed) {
-      extractedAmount = parsed;
-      confidenceScores.amount = 0.9;
-    } else {
-      errors.push("Could not parse amount");
-      confidenceScores.amount = 0;
+  let extractedAmount = extractAmountFromLine(
+    lines.find((line) => LABELS.amount.test(line)) || "",
+  );
+
+  if (!extractedAmount) {
+    for (const line of lines) {
+      if (/\d/.test(line)) {
+        const value = extractAmountFromLine(line);
+        if (value) {
+          extractedAmount = value;
+          break;
+        }
+      }
     }
+  }
+
+  if (extractedAmount) {
+    confidenceScores.amount = 0.92;
   } else {
     errors.push("No amount found");
     confidenceScores.amount = 0;
   }
 
-  // Extract vendor (look for capitalized lines)
-  let extractedVendor: string | undefined;
-  const lines = cleanText.split("\n");
-  const vendorLine = lines.find(
-    (line) => line.length > 3 && line.length < 50 && /^[A-Z]/.test(line.trim()),
-  );
-  if (vendorLine) {
-    extractedVendor = vendorLine.trim();
-    confidenceScores.vendor = 0.7; // Lower confidence for vendor extraction
+  const extractedVendor = findBestVendor(lines);
+  if (extractedVendor) {
+    confidenceScores.vendor = 0.8;
   } else {
     errors.push("No vendor found");
     confidenceScores.vendor = 0;
   }
 
-  // Detect document type
   const extractedDocumentType = detectDocumentType(cleanText);
   confidenceScores.documentType = 0.75;
 
-  // Calculate overall confidence
+  if (extractedAmount && extractedDate && !extractCurrency(cleanText)) {
+    confidenceScores.currency = 0.7;
+  }
+
   const scores = Object.values(confidenceScores);
   overallConfidence =
     scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+
+  const vendorDescription = extractedVendor ? `Vendor: ${extractedVendor}` : "";
 
   return {
     rawText: cleanText,
     extractedDate,
     extractedAmount,
-    extractedCurrency: "ARS", // Default to Argentine Peso
+    extractedCurrency: extractCurrency(cleanText) || "ARS",
     extractedVendor,
     extractedDocumentType,
-    extractedDescription: `Extracted from document. Found ${Object.keys(confidenceScores).length} fields.`,
+    extractedDescription: `Extracted from document. ${vendorDescription}`,
     confidenceScores,
     overallConfidence: Math.round(overallConfidence * 100) / 100,
     errors,
@@ -224,7 +304,7 @@ async function extractFieldsFromAI(
   try {
     const ollamaUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
     const trimmedText = text.trim().substring(0, 4500);
-    const prompt = `Eres un extractor financiero experto. Extrae solo JSON válido con las siguientes claves: extractedDate, extractedAmount, extractedCurrency, extractedVendor, extractedDocumentType, extractedDescription.\n\nTexto del documento:\n${trimmedText}\n\nDevuelve solo JSON.`;
+    const prompt = `Eres un extractor financiero experto. Extrae solo JSON válido con las siguientes claves: extractedDate, extractedAmount, extractedCurrency, extractedVendor, extractedDocumentType, extractedDescription.\n\nTexto del documento (preserva saltos de línea y páginas si existen):\n${trimmedText}\n\nDevuelve solo JSON.`;
 
     const response = await fetch(`${ollamaUrl}/api/generate`, {
       method: "POST",
@@ -286,12 +366,58 @@ async function extractFieldsFromAI(
 }
 
 /**
- * Parse PDF file text using pdf-parse
+ * Parse PDF file text using pdf-parse while preserving relative layout.
  */
 async function extractTextFromPdf(fileBuffer: Buffer): Promise<string> {
   try {
-    const pdfParse = await import("pdf-parse");
-    const data = await pdfParse.default(fileBuffer);
+    const pdfModule = await import("pdf-parse");
+    const pdfParse: (
+      buffer: Buffer,
+      options?: Record<string, unknown>,
+    ) => Promise<{ text: string }> = pdfModule.default ?? pdfModule;
+
+    type PdfPageData = {
+      getTextContent: (options: { normalizeWhitespace: boolean }) => Promise<{
+        items: Array<{
+          str: string;
+          transform?: [number, number, number, number, number, number];
+        }>;
+      }>;
+    };
+
+    const options = {
+      pagerender: async (pageData: PdfPageData) => {
+        const textContent = await pageData.getTextContent({
+          normalizeWhitespace: true,
+        });
+        const items = textContent.items;
+
+        const lines: Array<{ y: number; items: typeof items }> = [];
+        for (const item of items) {
+          const y = item.transform?.[5] ?? 0;
+          const line = lines.find((entry) => Math.abs(entry.y - y) < 5);
+          if (line) {
+            line.items.push(item);
+          } else {
+            lines.push({ y, items: [item] });
+          }
+        }
+
+        return lines
+          .sort((a, b) => b.y - a.y)
+          .map((line) =>
+            line.items
+              .sort((a, b) => (a.transform?.[4] ?? 0) - (b.transform?.[4] ?? 0))
+              .map((item) => item.str)
+              .join(" ")
+              .trim(),
+          )
+          .filter(Boolean)
+          .join("\n");
+      },
+    };
+
+    const data = await pdfParse(fileBuffer, options);
     return data.text || "";
   } catch (error) {
     console.warn("PDF text extraction failed:", error);
@@ -313,7 +439,8 @@ export async function extractDocumentData(
     extractionMethod = "pdf-parse";
     rawText = await extractTextFromPdf(fileBuffer);
     if (!rawText) {
-      rawText = "[PDF extraction failed: no text content found]";
+      rawText = "[PDF appears to be image-only or text extraction failed]";
+      extractionMethod = "pdf-parse-no-text";
     }
   } else if (mimeType.startsWith("image/")) {
     extractionMethod = "ocr";
