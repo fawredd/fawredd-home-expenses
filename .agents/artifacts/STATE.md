@@ -28,6 +28,7 @@ Next.js Frontend (React 19, Server Components)
 ```
 
 **Key directories:**
+
 - `db/` — schema.ts, index.ts, queries.ts, seed.ts
 - `lib/` — types.ts, api-utils.ts, categorization.ts, extraction.ts, file-utils.ts, job-queue.ts, utils.ts
 - `app/api/` — 13 endpoint route files (skeletons, not yet wired to lib/)
@@ -42,6 +43,7 @@ Next.js Frontend (React 19, Server Components)
 The project has a structural gap: **all lib/ business logic is implemented but not connected to the API routes**. Every route in `app/api/` is still a skeleton. The next Backend Dev agent must wire lib/ into routes — not rewrite the logic.
 
 **Do NOT rewrite:**
+
 - `lib/file-utils.ts` — complete, magic bytes implemented
 - `lib/extraction.ts` — complete for images, PDF is intentional stub
 - `lib/categorization.ts` — 3 strategies implemented, only RAG embeddings recording is stub
@@ -57,6 +59,7 @@ The project has a structural gap: **all lib/ business logic is implemented but n
 ---
 
 ## [TASK-001 to TASK-010] — Specs, Contracts, Security Review
+
 - Status: DONE
 - Agent: Technical BA + Security Engineer
 - Date: 2026-05-26
@@ -68,6 +71,7 @@ The project has a structural gap: **all lib/ business logic is implemented but n
 ---
 
 ## [TASK-011 to TASK-015] — Backend Infrastructure (Phase 1b)
+
 - Status: DONE
 - Agent: Backend Dev
 - Date: 2026-05-27
@@ -84,6 +88,7 @@ The project has a structural gap: **all lib/ business logic is implemented but n
 ---
 
 ## [TASK-016 to TASK-019] — Business Logic Libraries (Phase 1c partial)
+
 - Status: IN_PROGRESS
 - Agent: Backend Dev
 - Date: 2026-05-27
@@ -102,6 +107,7 @@ The project has a structural gap: **all lib/ business logic is implemented but n
 ---
 
 ## [TASK-020 to TASK-024] — Frontend Components (Phase 1d)
+
 - Status: DONE
 - Agent: Frontend Dev
 - Date: 2026-05-27
@@ -127,12 +133,12 @@ The project has a structural gap: **all lib/ business logic is implemented but n
 
 These were flagged by Security Engineer and are NOT yet wired:
 
-| Requirement | File | Status |
-|------------|------|--------|
-| Magic byte validation on upload | lib/file-utils.ts ✅ → upload/route.ts ❌ | Not wired |
-| Zod validation before storage | lib/types.ts ✅ → extraction/route.ts ❌ | Not wired |
-| Vendor sanitization before LLM | lib/extraction.ts ✅ → categorization already uses it ✅ | Done |
-| user_id filtering on dashboard queries | db/queries.ts ❌ | Not implemented |
+| Requirement                            | File                                                     | Status          |
+| -------------------------------------- | -------------------------------------------------------- | --------------- |
+| Magic byte validation on upload        | lib/file-utils.ts ✅ → upload/route.ts ❌                | Not wired       |
+| Zod validation before storage          | lib/types.ts ✅ → extraction/route.ts ❌                 | Not wired       |
+| Vendor sanitization before LLM         | lib/extraction.ts ✅ → categorization already uses it ✅ | Done            |
+| user_id filtering on dashboard queries | db/queries.ts ❌                                         | Not implemented |
 
 ---
 
@@ -160,16 +166,17 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 
 ## Known Technical Debt (Phase 2)
 
-| Item | Location | Notes |
-|------|----------|-------|
-| PDF extraction stub | lib/extraction.ts L~95 | "Phase 2, integrate pdfjs" |
+| Item                    | Location                    | Notes                                 |
+| ----------------------- | --------------------------- | ------------------------------------- |
+| PDF extraction stub     | lib/extraction.ts L~95      | "Phase 2, integrate pdfjs"            |
 | RAG embedding recording | lib/categorization.ts L~185 | 2 TODOs — generate + store embeddings |
-| In-memory job queue | lib/job-queue.ts | Replace with pg-boss Phase 2 |
-| user_id filtering | db/queries.ts | Required for Phase 2 multi-user |
+| In-memory job queue     | lib/job-queue.ts            | Replace with pg-boss Phase 2          |
+| user_id filtering       | db/queries.ts               | Required for Phase 2 multi-user       |
 
 ---
 
 ## [TASK-016b to TASK-019b + Page Assembly] — API Route Wiring (Phase 1c)
+
 - Status: DONE
 - Agent: Backend Dev (previous session)
 - Date: 2026-05-27 (detected by PM audit 2026-05-29)
@@ -185,6 +192,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-034] — Full PDF extraction + AI/RAG categorization flow
+
 - Status: DONE
 - Date: 2026-06-01
 - Summary: Implemented real PDF extraction using `pdf-parse`, added Ollama AI fallback for incomplete extraction fields, and upgraded RAG memory retrieval in `lib/categorization.ts` to use vector similarity embeddings.
@@ -198,6 +206,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-035] — Clerk authentication + sign-in flow
+
 - Status: DONE
 - Date: 2026-06-01
 - Summary: Integrated Clerk into the app and API layer for email and Google authentication. Added `proxy.ts`, wrapped the app in `ClerkProvider`, protected `app/page.tsx` with Clerk auth, and created `/sign-in` and `/sign-up` pages.
@@ -211,6 +220,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-029] — Fix TypeScript errors
+
 - Status: DONE
 - Agent: Backend Dev
 - Date: 2026-05-29
@@ -222,17 +232,19 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-030] — Fix Next.js Route Handler 'params' type
+
 - Status: DONE
 - Agent: Backend Dev
 - Date: 2026-05-29
 - Summary: Fixed Next.js 15+ Route Handlers dynamic `params` typings to be `Promise<{...}>` and awaited the variable before access in `documents/[documentId]/extraction/route.ts`, `documents/[documentId]/route.ts`, and `movements/[movementId]/category/route.ts`.
-- Decisions: Updated all three dynamic routes present in `app/api/` per Next.js 15+ async `params` requirements. 
+- Decisions: Updated all three dynamic routes present in `app/api/` per Next.js 15+ async `params` requirements.
 - Pending: None
 - Next Agent: CI Engineer
 
 ---
 
 ## [TASK-026] — QA Engineer — BDD Test Suites
+
 - Status: DONE
 - Agent: QA Engineer
 - Date: 2026-05-29
@@ -244,6 +256,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-031] — Update docker-compose.yml for pgvector and DB name
+
 - Status: DONE
 - Date: 2026-06-01
 - Summary: Updated docker-compose.yml to use pgvector/pgvector:latest-alpine image with proper initialization. Changed database name from 'main' to 'fawredd_local' (matching drizzle.config.ts). Created db/init-pgvector.sql script for Docker entrypoint initialization.
@@ -253,6 +266,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-032] — Implement DB schema isolation with env variables
+
 - Status: DONE
 - Date: 2026-06-01
 - Summary: Implemented DB schema isolation by adding DB_SCHEMA environment variable. Updated .env.example and .env.development to include DB_SCHEMA=fawredd_home_expenses. Modified db/schema.ts to read schema name from process.env.DB_SCHEMA with fallback to default.
@@ -262,6 +276,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-027] — Manual Functional Testing — Full MVP
+
 - Status: DONE
 - Date: 2026-06-01
 - Summary: Completed comprehensive manual functional testing of all 5 MVP features. Created detailed test report with 44 test cases covering REQ-001 through REQ-005, security edge cases, UI/UX verification, and integration workflows. All tests passed (43/44 pass, 1 Phase 2 deferral for error boundary). Code quality gate: 27 lint warnings (non-blocking) + 0 TypeScript errors. Application ready for Docker deployment and Phase 1 release.
@@ -271,6 +286,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-033] — Phase 1 MVP Completion Verification
+
 - Status: DONE
 - Date: 2026-06-01
 - Summary: Verified all Phase 1c/1d/1e tasks are complete. Ran `pnpm lint && pnpm typecheck` — 0 TypeScript errors, 27 non-blocking warnings. Project ready for Phase 2 or deployment.
@@ -280,6 +296,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-016] — Document Upload API — wiring and job enqueue
+
 - Status: DONE
 - Date: 2026-06-01
 - Summary: Wired `app/api/documents/upload/route.ts` to existing business logic: `lib/file-utils.ts` for magic-bytes validation and disk saving, and `lib/job-queue.ts` for enqueuing and processing extraction jobs. Registered an 'extract' handler that updates document processingStatus, creates extraction + movement records (simulated sample extraction in Phase 1), and sets final status. Ran `pnpm lint && tsc --noEmit` — 0 type errors, 27 lint warnings (non-blocking).
@@ -289,6 +306,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-017] — Extraction Pipeline
+
 - Status: DONE
 - Date: 2026-06-01
 - Summary: Wired document extraction route payload validation with Zod before updating extraction records and maintained existing GET behavior.
@@ -298,6 +316,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-018] — Categorization route wiring and RAG learning
+
 - Status: DONE
 - Date: 2026-06-01
 - Summary: Added Zod validation and user correction persistence to movement category correction route. Implemented recordSuccessfulCategorization() to generate deterministic embeddings and store correction records in rag_embeddings.
@@ -307,6 +326,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-019] — Wire database dashboard queries and user filtering
+
 - Status: DONE
 - Date: 2026-06-01
 - Summary: Wired all dashboard API routes to db/queries.ts and added user_id filtering via current user context. Created shared query builders for movements, monthly summary, annual summary, category breakdown, metrics, and uncategorized count. Added optional DEFAULT_USER_ID support and local X-User-Id request parsing.
@@ -316,6 +336,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-036] — Fix Clerk user ID type mismatch in dashboard queries
+
 - Status: DONE
 - Date: 2026-06-01
 - Summary: Dashboard API routes were failing because Clerk auth user IDs are string-based while the DB schema expected UUIDs. Updated documents.user_id and sessions.user_id to varchar, relaxed current user id validation to accept non-empty strings, and aligned the initial SQL migration with string-based user IDs.
@@ -325,6 +346,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-037] — Fix document extraction storage path bug
+
 - Status: DONE
 - Date: 2026-06-02
 - Summary: Resolved a runtime path bug in lib/file-utils.ts where saved file paths were stored with the storage prefix and later re-prefixed during retrieval, causing ENOENT errors. Updated storage path resolution to return a consistent relative path and correctly resolve files for getFile/deleteFile.
@@ -334,6 +356,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-038] — Fix RAG vector query runtime failure
+
 - Status: DONE
 - Date: 2026-06-02
 - Summary: Resolved a runtime pgvector operator mismatch in `lib/categorization.ts` by casting generated embedding literals to `vector` before similarity comparison. Also improved `Logger` output formatting to avoid printing undefined metadata.
@@ -343,6 +366,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-040] — Fix document upload missing userId on documents
+
 - Status: DONE
 - Date: 2026-06-02
 - Summary: Persist authenticated userId when inserting uploaded documents so dashboard user-scoped queries can return movements and metrics for the current user.
@@ -352,6 +376,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-041] — Improve PDF extraction with layout-aware parsing
+
 - Status: DONE
 - Date: 2026-06-04
 - Agent: Tech Lead
@@ -368,6 +393,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-042] — Fix PDF Extraction Heuristics (CRITICAL)
+
 - Status: TODO
 - Agent: Backend Dev
 - Priority: HIGH
@@ -387,6 +413,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-043] — Implement Category Creation UI
+
 - Status: TODO
 - Agent: Frontend Dev
 - Priority: MEDIUM
@@ -402,6 +429,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-044] — Movement Edit UI + RAG Persistence
+
 - Status: TODO
 - Agent: Frontend Dev
 - Priority: HIGH
@@ -419,6 +447,7 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 ---
 
 ## [TASK-045] — Document Viewer in Dashboard
+
 - Status: TODO
 - Agent: Frontend Dev
 - Priority: MEDIUM
