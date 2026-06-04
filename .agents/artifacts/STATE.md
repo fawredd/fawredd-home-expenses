@@ -348,3 +348,87 @@ Full setup guide: `LOCAL_SETUP.md` (project root)
 - Summary: Persist authenticated userId when inserting uploaded documents so dashboard user-scoped queries can return movements and metrics for the current user.
 - Decisions: Added getCurrentUserId() to app/api/documents/upload/route.ts and stored userId on document insert. No database schema changes required because documents.userId already exists.
 - Pending: None. Validation passed with lint and typecheck.
+
+---
+
+## [TASK-041] — Improve PDF extraction with layout-aware parsing
+- Status: DONE
+- Date: 2026-06-04
+- Agent: Tech Lead
+- Summary: Replaced pdfjs-dist with pdf-parse and implemented layout-aware text reconstruction using pagerender callback. Enhanced extraction heuristics for Spanish documents (invoices/statements) with label-based field detection and improved regex patterns.
+- Decisions:
+  - pdf-parse with custom pagerender to group text items by y-position (line tolerance ±5pt)
+  - Sort items left-to-right by x-coordinate to preserve row structure
+  - Added LABELS dict for Spanish financial keywords (fecha, importe, razón social, etc.)
+  - Enhanced field detection: findBestDate(), findBestVendor(), extractAmountFromLine()
+  - AI prompt now instructs model to preserve line breaks and page markers
+- Pending: Heuristics failing in production (vendor='original', amount=89 instead of 968000); needs debug/refinement in TASK-042
+- Next Agent: Backend Dev → TASK-042
+
+---
+
+## [TASK-042] — Fix PDF Extraction Heuristics (CRITICAL)
+- Status: TODO
+- Agent: Backend Dev
+- Priority: HIGH
+- Issues Found (from PDF test):
+  - Vendor extracted as 'original' instead of 'DIREXA S.A.' (correct: top-left company name)
+  - Amount extracted as 89,00 ARS instead of 968,000.00 (correct: TOTAL row)
+  - Date extracted as 29/04 instead of 30/04 (minor: off by one)
+  - Root cause: regex patterns and line-finding heuristics not matching actual PDF layout structure
+- Action Items:
+  1. Debug extractTextFromPdf() output to see actual layout
+  2. Refine findBestVendor() — should detect vendor from top section labels
+  3. Fix extractAmountFromLine() — should prioritize lines with TOTAL label
+  4. Adjust line grouping threshold if needed (currently ±5pt)
+- Acceptance: All 3 fields (date/vendor/amount) correctly extracted from test invoice
+- Next Agent: Backend Dev
+
+---
+
+## [TASK-043] — Implement Category Creation UI
+- Status: TODO
+- Agent: Frontend Dev
+- Priority: MEDIUM
+- Requirement: Users cannot create new categories; add modal to dashboard
+- Implementation:
+  1. Add "New Category" button in dashboard-layout.tsx
+  2. Create category-creation-modal.tsx component with name + color inputs
+  3. POST /api/categories (create new category endpoint — does not exist yet)
+  4. Refresh category list after successful creation
+- Acceptance: User can create category, see it in dropdown, assign to movement
+- Next Agent: Frontend Dev
+
+---
+
+## [TASK-044] — Movement Edit UI + RAG Persistence
+- Status: TODO
+- Agent: Frontend Dev
+- Priority: HIGH
+- Requirements:
+  1. Movements not editable; add edit modal for user corrections
+  2. Modal should allow user to correct: date, vendor, amount, category
+  3. On save: call PUT /api/movements/[movementId]/category with corrected data
+  4. Persist corrected data as RAG embedding via recordSuccessfulCategorization()
+- Related Code:
+  - lib/categorization.ts recordSuccessfulCategorization() (already implemented; generates pgvector embedding)
+  - db/queries.ts has movement update query builder
+- Acceptance: User can edit movement, see confirmation, data stored in rag_embeddings table, next extraction learns from correction
+- Next Agent: Frontend Dev
+
+---
+
+## [TASK-045] — Document Viewer in Dashboard
+- Status: TODO
+- Agent: Frontend Dev
+- Priority: MEDIUM
+- Requirement: Uploaded documents not visible to users; add view/download link in movements table
+- Implementation:
+  1. Add "View Document" button in movements-table.tsx row actions
+  2. Create document-viewer modal or link to download file
+  3. GET /api/documents/[documentId] to fetch file path and serve file
+  4. Display PDF inline or as downloadable link
+- Acceptance: User can click "View Document" in movements table, see related PDF/image
+- Next Agent: Frontend Dev
+
+---

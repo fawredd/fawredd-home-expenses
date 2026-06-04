@@ -52,9 +52,9 @@
 | TASK-018b | Wire categorization.ts into category routes      | Backend Dev       | app/api/movements/[movementId]/category/route.ts + categories/route.ts — complete                                          |
 | TASK-019b | Wire db/queries.ts into all dashboard routes     | Backend Dev       | All dashboard route.ts files — complete                                                                                    |
 | TASK-028  | Page assembly — app/page.tsx                     | Frontend Dev      | All tabs assembled — complete                                                                                              |
-| TASK-034  | Full PDF extraction + AI/RAG categorization flow  | Backend Dev       | Added real PDF extraction with pdf-parse, AI-assisted field inference, and vector RAG memory support                        |
+| TASK-034  | Full PDF extraction + AI/RAG categorization flow | Backend Dev       | Added real PDF extraction with pdf-parse, AI-assisted field inference, and vector RAG memory support                       |
 | TASK-035  | Clerk authentication + sign-in flow              | Backend Dev       | Integrated Clerk auth into API routes, added `proxy.ts`, protected homepage redirect, and added Clerk sign-in/sign-up UI   |
-| TASK-037  | Document extraction storage path bug fix         | Backend Dev       | Fixed path normalization in `lib/file-utils.ts` so background extraction jobs can read saved files                       |
+| TASK-037  | Document extraction storage path bug fix         | Backend Dev       | Fixed path normalization in `lib/file-utils.ts` so background extraction jobs can read saved files                         |
 
 ---
 
@@ -116,7 +116,7 @@
 ## Backlog — Phase 2 (Deferred)
 
 | ID       | Title                                                     | Notes                                 |
-| -------- | --------------------------------------------------------- | ------------------------------------- |
+| -------- | --------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | TASK-100 | Replace in-memory job-queue with pg-boss                  | Technical debt — jobs lost on restart |
 | TASK-101 | PDF extraction — integrate pdfjs or pdf-parse             | Explicit stub in lib/extraction.ts    |
 | TASK-102 | RAG embeddings — implement recordSuccessfulCategorization | 2 TODOs in lib/categorization.ts      |
@@ -129,5 +129,10 @@
 | TASK-109 | Scheduled folder watching / auto-import                   | Phase 2                               |
 | TASK-110 | Advanced analytics and charting                           | Phase 2                               |
 | TASK-111 | Mobile app                                                | Phase 3                               |
-| TASK-038 | Fix RAG vector query runtime failure | **DONE** |
-| TASK-040 | Fix document upload missing userId on documents | **DONE** |
+| TASK-038 | Fix RAG vector query runtime failure                      | **DONE**                              |
+| TASK-040 | Fix document upload missing userId on documents           | **DONE**                              |
+| TASK-041 | Improve PDF extraction with layout-aware parsing          | Backend Dev                           | pdf-parse with pagerender callback, enhanced heuristics for Spanish invoices/statements                 |
+| TASK-042 | Fix PDF extraction heuristics for vendor/amount/date      | Backend Dev                           | Layout-aware extraction failing; vendor='original', amount=89 instead of 968000; needs regex refinement |
+| TASK-043 | Implement category creation UI and modal                  | Frontend Dev                          | Users cannot create new categories; add modal to dashboard with category name/color inputs              |
+| TASK-044 | Implement movement edit UI and RAG persistence            | Frontend Dev                          | Movements not editable; add edit modal with field correction, save corrected data to RAG embeddings     |
+| TASK-045 | Add document viewer in dashboard                          | Frontend Dev                          | Uploaded documents not visible to users; add document preview/download link in movements table          |
