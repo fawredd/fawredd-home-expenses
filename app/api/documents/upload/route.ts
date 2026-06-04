@@ -3,7 +3,12 @@
  * Upload one or multiple financial documents
  */
 import { NextRequest } from "next/server";
-import { successResponse, errorResponse, Logger, getCurrentUserId } from "@/lib/api-utils";
+import {
+  successResponse,
+  errorResponse,
+  Logger,
+  getCurrentUserId,
+} from "@/lib/api-utils";
 import { HttpErrors } from "@/lib/api-utils";
 import { db } from "@/db";
 import { documents, extractions, movements } from "@/db/schema";
