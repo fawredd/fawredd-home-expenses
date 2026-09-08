@@ -13,10 +13,11 @@ Fawredd Home Expenses is a local financial-document application. It accepts PDF 
 - Review extracted documents, correct movement categories, and record correction/learning data.
 - View filtered movements, financial metrics, monthly and annual summaries, category breakdowns, and uncategorized counts.
 - Protect the homepage and middleware-matched application paths with Clerk authentication.
+- Deduplicate repeated uploads, extraction items, review submissions, corrections, and extraction jobs using PostgreSQL keys.
 
 ## Architecture
 
-The application uses the Next.js App Router. React client components call route handlers under `app/api/`. Route handlers use shared utilities in `lib/`, Drizzle ORM through `db/`, and local filesystem storage for uploaded files. Upload processing is dispatched to a process-local in-memory job queue. PostgreSQL, including the `vector` extension, stores application data.
+The application uses the Next.js App Router. React client components call route handlers under `app/api/`. Route handlers use shared utilities in `lib/`, Drizzle ORM through `db/`, and local filesystem storage for uploaded files. Upload processing is dispatched to a process-local execution loop backed by PostgreSQL job records. PostgreSQL, including the `vector` extension, stores application data and idempotency state.
 
 ### Verified technology stack
 
@@ -37,7 +38,9 @@ The application uses the Next.js App Router. React client components call route 
 - Uploaded files use local filesystem storage under a configurable path; the database stores document metadata and the relative file path.
 - Extraction uses deterministic parsing first, then optional Ollama enhancement when confidence is low or required fields are missing.
 - Categorization follows rules, RAG similarity, Ollama, then the default category.
-- The job queue is an in-memory singleton with priority ordering and retries. The `processing_jobs` table exists, but the current upload path uses the in-memory queue.
+- The job queue uses an in-memory execution loop, while `processing_jobs` persists payloads, status, retry state, and deduplication keys in PostgreSQL. Pending and retryable jobs are recovered when the route module initializes.
+- Uploaded bytes remain on the local filesystem. PostgreSQL stores metadata, fingerprints, and the relative file path; it does not store document contents.
+- Idempotency is enforced with database uniqueness keys: `documents.uploadFingerprint`, `extractions.sourceItemKey`, `movements.reviewKey`, `userCorrections.correctionKey`, and `processingJobs.deduplicationKey`.
 - External request bodies are validated with Zod in the implemented create/update/review paths.
 - Clerk identity is preferred for API user scoping; `x-user-id` and `DEFAULT_USER_ID` are fallback identity sources in `getCurrentUserId`.
 
@@ -81,7 +84,7 @@ pnpm typecheck     Run TypeScript without emitting files
 pnpm build         Build the Next.js application
 ```
 
-`docker compose up -d` starts the checked-in PostgreSQL/pgvector and Redis services. The repository also contains [LOCAL_SETUP.md](LOCAL_SETUP.md) with the manual PostgreSQL setup path.
+`docker compose up -d` starts the checked-in PostgreSQL/pgvector and Redis services. The application currently requires PostgreSQL and local filesystem access; it does not read `REDIS_URL`. The repository also contains [LOCAL_SETUP.md](LOCAL_SETUP.md) with the manual PostgreSQL setup path.
 
 ## Environment Variables
 
@@ -110,6 +113,15 @@ Do not commit real credentials. The checked-in `.env.development` currently cont
 
 The concrete runtime integrations are PostgreSQL/pgvector, Clerk, Ollama, and the local filesystem. Redis is provisioned in Docker Compose and declared in the environment template, but no application module directly reads `REDIS_URL`. The MCP server is a developer-tool integration, not an application data dependency.
 
+## Developer Invariants
+
+- Do not move uploaded file bytes into PostgreSQL for this local-development architecture. Keep using `STORAGE_PATH` and store only metadata plus the relative path in `documents.filePath`.
+- Do not replace deterministic uniqueness keys with process-local flags. Browser retries, route retries, and queue retries must be safe across separate requests.
+- A document may contain multiple extracted items. Use `documentId:itemIndex`-style `sourceItemKey` values so retries skip only the same item.
+- The queue is durable only as metadata and state. It is not a multi-process worker system: execution still occurs in the Node.js process, and local files must remain available to that process.
+- Use `pnpm db:push` for local development when applying the current schema directly. Use generated migrations for a repeatable deployment history.
+- Validate changes with `pnpm typecheck`, `pnpm lint`, and `pnpm build` when the change affects application wiring.
+
 ## AI-Assisted Developer Experience
 
 The repository includes AI-agent metadata as project data:
@@ -125,9 +137,10 @@ These files describe the intended AI-assisted development workflow and are not a
 
 ## Known Implementation Boundaries
 
-- The job queue is process-local and is not persisted in the `processing_jobs` table.
-- Authentication is integrated, but the API still contains local fallback identity behavior.
-- The pending-review component requests `/api/documents?status=awaiting_review&limit=20`; no matching `app/api/documents/route.ts` file is present in the repository tree and this integration requires further investigation.
+- Queue execution is process-local even though job records and retry state are persisted in PostgreSQL. A separate worker/lease model is still needed for multi-process production deployment.
+- Uploaded files are local filesystem assets. Moving the application to another machine without moving `STORAGE_PATH` makes existing document rows unreadable.
+- Authentication is integrated, but the API still contains local fallback identity behavior through `x-user-id` and `DEFAULT_USER_ID` for development.
+- The document list endpoint is implemented at `GET /api/documents`; it supports user scoping, an optional `status` filter, and a bounded `limit` used by pending-review UI.
 
 ## Learn More
 

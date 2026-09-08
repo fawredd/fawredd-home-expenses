@@ -10,7 +10,7 @@ flowchart TD
     Auth[Clerk middleware and auth] --> Routes
     Routes --> Api[lib/api-utils.ts]
     Routes --> Files[lib/file-utils.ts]
-    Routes --> Queue[In-memory JobQueue]
+    Routes --> Queue[PostgreSQL-backed JobQueue]
     Routes --> Domain[Extraction, categorization, and memory services]
     Routes --> Queries[db/queries.ts]
     Domain --> Db[(PostgreSQL schema fawredd_home_expenses)]
@@ -28,7 +28,7 @@ sequenceDiagram
     participant API as POST /api/documents/upload
     participant FS as Local filesystem
     participant DB as PostgreSQL
-    participant Q as In-memory queue
+    participant Q as PostgreSQL-backed queue with local execution loop
     participant EX as Extraction service
     participant MEM as Extraction memory
     participant CAT as Categorization service
@@ -37,9 +37,11 @@ sequenceDiagram
     API->>API: validate MIME, extension, size, magic bytes
     API->>FS: saveFile(buffer, filename)
     API->>DB: insert documents metadata and userId
-    API->>Q: enqueue extract(documentId)
+    API->>DB: insert or reuse document by user + file fingerprint
+    API->>Q: insert or reuse deduplicated extract job
     API-->>UI: success response with document metadata
     Q->>EX: extractDocumentData(file, mimeType)
+    Q->>DB: persist processing status, retry state, and completion state
     EX->>EX: PDF parse or image OCR; regex inference; optional Ollama enhancement
     EX->>MEM: queryExtractionMemory(CUIT, documentType)
     alt memory match confidence >= 0.85
@@ -94,17 +96,17 @@ flowchart LR
 
 The entities below are declared in `db/schema.ts` under `appSchema`, whose name is `DB_SCHEMA` or `fawredd_home_expenses`.
 
-| Entity              | Key fields and role                                                                                            | Relationships                                                                                                                   |
-| ------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `documents`         | Uploaded filename, size, MIME type, filesystem path, upload/processing status, timestamps, optional `userId`   | Parent of `extractions`, `movements`, and optionally `processing_jobs`; document deletion cascades to extractions and movements |
-| `extractions`       | Raw OCR/text, date, amount, currency, vendor, CUIT, document type, confidence JSON, method                     | Belongs to `documents`; movement references one extraction                                                                      |
-| `categories`        | Unique name, description, optional parent, color/icon, active flag, sort order                                 | Self-referencing parent; referenced by movements, RAG embeddings, and corrections                                               |
-| `movements`         | Transaction date, amount, currency, income/expense type, vendor, category, confidence, review/correction flags | Belongs to `documents`, `extractions`, and optionally `categories`; can have correction and RAG records                         |
-| `rag_embeddings`    | Vendor name, 384-dimensional vector, category                                                                  | Belongs to `movements` and `categories`; uses pgvector distance queries                                                         |
-| `extraction_memory` | Vendor, optional CUIT, document type, 384-dimensional vector, JSON hints, sample text, usage metadata          | Standalone memory records queried by CUIT/document type similarity                                                              |
-| `user_corrections`  | Movement, old/new category, reason, correction timestamps                                                      | Belongs to `movements`; old category is nullable and new category is required                                                   |
-| `processing_jobs`   | Optional document/movement, type, status, priority, retry data, timestamps                                     | Optional references to documents and movements; current upload processing uses the in-memory queue instead                      |
-| `sessions`          | User ID, unique token, expiration and creation timestamps                                                      | Declared for future authentication support; current Clerk flow does not use this table                                          |
+| Entity              | Key fields and role                                                                                                        | Relationships                                                                                                                   |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `documents`         | Uploaded filename, size, MIME type, filesystem path, upload/processing status, timestamps, optional `userId`               | Parent of `extractions`, `movements`, and optionally `processing_jobs`; document deletion cascades to extractions and movements |
+| `extractions`       | Raw OCR/text, date, amount, currency, vendor, CUIT, document type, confidence JSON, method, deterministic source item key  | Belongs to `documents`; movement references one extraction                                                                      |
+| `categories`        | Unique name, description, optional parent, color/icon, active flag, sort order                                             | Self-referencing parent; referenced by movements, RAG embeddings, and corrections                                               |
+| `movements`         | Transaction date, amount, currency, income/expense type, vendor, category, confidence, review/correction flags, review key | Belongs to `documents`, `extractions`, and optionally `categories`; can have correction and RAG records                         |
+| `rag_embeddings`    | Vendor name, 384-dimensional vector, category                                                                              | Belongs to `movements` and `categories`; uses pgvector distance queries                                                         |
+| `extraction_memory` | Vendor, optional CUIT, document type, 384-dimensional vector, JSON hints, sample text, usage metadata                      | Standalone memory records queried by CUIT/document type similarity                                                              |
+| `user_corrections`  | Movement, old/new category, reason, deterministic correction key, correction timestamps                                    | Belongs to `movements`; old category is nullable and new category is required                                                   |
+| `processing_jobs`   | Optional document/movement, type, payload, deduplication key, status, priority, retry data, timestamps                     | Optional references to documents and movements; PostgreSQL persists state while the local process executes jobs                 |
+| `sessions`          | User ID, unique token, expiration and creation timestamps                                                                  | Declared for future authentication support; current Clerk flow does not use this table                                          |
 
 All primary keys are generated UUIDs. The vector columns are declared as `vector(384)`. The schema uses varchar status/type fields with source-level literal constants rather than native PostgreSQL enums.
 
@@ -137,17 +139,19 @@ The dashboard movement route currently parses URL values directly before calling
 | `document-viewer-modal.tsx`     | `GET /api/documents/{id}/file`                                                                               | Receives an inline file response with stored MIME type                      |
 | `category-creation-modal.tsx`   | `POST /api/categories`                                                                                       | Sends Zod-compatible name/color data                                        |
 
-`pending-review-list.tsx` requests `/api/documents?status=awaiting_review&limit=20`, but no `app/api/documents/route.ts` exists in the current tree. This path requires further investigation.
+`pending-review-list.tsx` requests `/api/documents?status=awaiting_review&limit=20`, which is implemented by `app/api/documents/route.ts` and scoped to the current user.
 
 ### API to domain and database
 
 1. `getCurrentUserId` prefers Clerk `auth.userId`, then a non-empty `x-user-id` header, then `DEFAULT_USER_ID`; absent identity produces an unauthorized error.
-2. Upload routes validate files, save bytes, and insert a `documents` row with the selected identity.
-3. The registered `extract` handler reads the document and file, calls `extractDocumentData`, and inserts one or more `extractions` rows.
-4. A qualifying extraction-memory result causes hinted extraction and `categorizeMovement`; the handler writes a `movements` row and completes the document. Without a qualifying result, it writes the extraction and sets `processingStatus` to `awaiting_review`.
-5. Review updates the extraction, inserts a reviewed manual movement, records extraction memory and categorization memory, and completes the document.
-6. Category and movement correction routes update movement fields, insert `user_corrections` when a category changes, and record successful categorization.
-7. Dashboard query functions join `movements` to `documents` and, where needed, `categories`; they apply user/date/filter conditions and return aggregate or row data. Route handlers convert SQL numeric strings to JavaScript numbers and calculate balances or percentages.
+2. Upload routes validate files, compute a user-scoped content fingerprint, save bytes locally, and insert or reuse a `documents` row.
+3. The upload path inserts or reuses a PostgreSQL `processing_jobs` row keyed by job type and document identity. The in-memory loop executes the persisted job and updates its status/retry fields.
+4. The registered `extract` handler reads the document and file, calls `extractDocumentData`, and inserts one or more `extractions` rows keyed by `sourceItemKey`. A retry skips an item already persisted with that key.
+5. A qualifying extraction-memory result causes hinted extraction and `categorizeMovement`; the handler writes a `movements` row and completes the document. Without a qualifying result, it writes the extraction and sets `processingStatus` to `awaiting_review`.
+6. Review claims the document with a conditional status update, derives a deterministic `reviewKey`, and returns the existing movement for a replay instead of creating a duplicate.
+7. Review updates the extraction, inserts a reviewed manual movement, records extraction memory and categorization memory, and completes the document.
+8. Category and movement correction routes update movement fields, insert `user_corrections` with deterministic correction keys, and record successful categorization without duplicating the same correction.
+9. Dashboard query functions join `movements` to `documents` and, where needed, `categories`; they apply user/date/filter conditions and return aggregate or row data. Route handlers convert SQL numeric strings to JavaScript numbers and calculate balances or percentages.
 
 ## Categorization Strategies
 
@@ -168,7 +172,8 @@ Dashboard routes obtain an identity with `getCurrentUserId` and pass it to query
 
 ## Storage and Failure Boundaries
 
-- Files are stored below `STORAGE_PATH` in year/month directories with generated names. The database stores the relative path.
-- The queue is in memory; jobs and their retry state disappear when the process exits.
+- Files are stored below `STORAGE_PATH` in year/month directories with generated names. The database stores the relative path and does not store file bytes.
+- Job records and retry state are persisted in PostgreSQL, but the execution loop is local to the Node.js process. Pending and retryable jobs are loaded when the upload route module initializes.
+- Database uniqueness keys protect retries across requests and process-local queue attempts; they do not make the local filesystem portable across machines.
 - Extraction and categorization catch Ollama failures and fall back to local parsing, review, or the default category depending on the path.
 - API helpers return `{ success, data/error, message, timestamp }` envelopes and map `AppError`/Zod failures to HTTP responses.

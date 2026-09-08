@@ -26,12 +26,12 @@ export function MovementCorrectionModal({
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  
+
   const [vendorName, setVendorName] = useState("");
   const [amount, setAmount] = useState<number | "">("");
   const [transactionDate, setTransactionDate] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("");
-  
+
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
@@ -54,11 +54,15 @@ export function MovementCorrectionModal({
         const movementData = await movementRes.json();
 
         setCategories(catsData.categories || []);
-        
+
         const data = movementData.data || movementData;
         setVendorName(data.vendor || "");
         setAmount(data.amount || "");
-        setTransactionDate(data.transactionDate ? new Date(data.transactionDate).toISOString().split('T')[0] : "");
+        setTransactionDate(
+          data.transactionDate
+            ? new Date(data.transactionDate).toISOString().split("T")[0]
+            : "",
+        );
         setSelectedCategory(data.categoryId || "");
         setError(null);
       } catch (err) {
@@ -82,6 +86,7 @@ export function MovementCorrectionModal({
       return;
     }
 
+    let completed = false;
     try {
       setSubmitting(true);
       setError(null);
@@ -89,11 +94,11 @@ export function MovementCorrectionModal({
       const res = await fetch(`/api/movements/${movementId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           categoryId: selectedCategory,
           vendorName: vendorName.trim(),
           amount: Number(amount),
-          transactionDate
+          transactionDate,
         }),
       });
 
@@ -102,16 +107,18 @@ export function MovementCorrectionModal({
         throw new Error(errorData.message || "Failed to update movement");
       }
 
+      completed = true;
       setSuccess(true);
       setTimeout(() => {
         onSuccess?.();
         onClose();
         setSuccess(false);
+        setSubmitting(false);
       }, 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
-      setSubmitting(false);
+      if (!completed) setSubmitting(false);
     }
   };
 
@@ -158,9 +165,7 @@ export function MovementCorrectionModal({
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-2">
-                  Fecha
-                </label>
+                <label className="block text-sm font-medium mb-2">Fecha</label>
                 <input
                   type="date"
                   value={transactionDate}
@@ -184,15 +189,17 @@ export function MovementCorrectionModal({
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">
-                  Monto
-                </label>
+                <label className="block text-sm font-medium mb-2">Monto</label>
                 <input
                   type="number"
                   step="0.01"
                   min="0"
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value === "" ? "" : Number(e.target.value))}
+                  onChange={(e) =>
+                    setAmount(
+                      e.target.value === "" ? "" : Number(e.target.value),
+                    )
+                  }
                   className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-50 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
                 />
@@ -230,7 +237,13 @@ export function MovementCorrectionModal({
                 </Button>
                 <Button
                   type="submit"
-                  disabled={submitting || !selectedCategory || !vendorName || !amount || !transactionDate}
+                  disabled={
+                    submitting ||
+                    !selectedCategory ||
+                    !vendorName ||
+                    !amount ||
+                    !transactionDate
+                  }
                   className="flex-1"
                 >
                   {submitting ? "Guardando..." : "Guardar"}

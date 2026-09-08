@@ -85,8 +85,6 @@ export function ExtractionReviewModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    setError(null);
-    setSuccess(false);
 
     const fetchData = async () => {
       try {
@@ -103,8 +101,7 @@ export function ExtractionReviewModal({
         const reviewJson = await reviewRes.json();
         const catsJson = await categoriesRes.json();
 
-        const data: ExtractionReviewData =
-          reviewJson.data ?? reviewJson;
+        const data: ExtractionReviewData = reviewJson.data ?? reviewJson;
         setReviewData(data);
         setCategories(catsJson.categories || catsJson.data?.categories || []);
 
@@ -114,9 +111,7 @@ export function ExtractionReviewModal({
           setVendor(ext.extractedVendor ?? "");
           setCuit(ext.extractedCuit ?? "");
           setDate(ext.extractedDate ?? "");
-          setAmount(
-            ext.extractedAmount ? Number(ext.extractedAmount) : "",
-          );
+          setAmount(ext.extractedAmount ? Number(ext.extractedAmount) : "");
           setCurrency(
             (ext.extractedCurrency as (typeof CURRENCIES)[number]) ?? "ARS",
           );
@@ -132,7 +127,13 @@ export function ExtractionReviewModal({
       }
     };
 
-    fetchData();
+    const task = setTimeout(() => {
+      setError(null);
+      setSuccess(false);
+      void fetchData();
+    }, 0);
+
+    return () => clearTimeout(task);
   }, [isOpen, documentId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -155,6 +156,7 @@ export function ExtractionReviewModal({
       return;
     }
 
+    let completed = false;
     try {
       setSubmitting(true);
       setError(null);
@@ -179,16 +181,18 @@ export function ExtractionReviewModal({
         throw new Error(json.message ?? "Error al guardar la revisión");
       }
 
+      completed = true;
       setSuccess(true);
       setTimeout(() => {
         onSuccess?.();
         onClose();
         setSuccess(false);
+        setSubmitting(false);
       }, 2000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
-      setSubmitting(false);
+      if (!completed) setSubmitting(false);
     }
   };
 
@@ -201,7 +205,6 @@ export function ExtractionReviewModal({
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-lg w-full max-h-[92vh] overflow-y-auto border border-slate-200 dark:border-slate-700">
-
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-900 z-10 rounded-t-2xl">
           <div className="flex items-center gap-3">
@@ -231,7 +234,9 @@ export function ExtractionReviewModal({
           <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
             <Brain className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
             <p className="text-xs text-amber-800 dark:text-amber-200">
-              Este proveedor no fue reconocido. Tus correcciones entrenarán al sistema para extraer datos automáticamente en documentos futuros del mismo proveedor.
+              Este proveedor no fue reconocido. Tus correcciones entrenarán al
+              sistema para extraer datos automáticamente en documentos futuros
+              del mismo proveedor.
             </p>
           </div>
 
@@ -281,8 +286,11 @@ export function ExtractionReviewModal({
               <p className="mt-2 text-sm text-slate-500">Cargando datos…</p>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-4" id="extraction-review-form">
-
+            <form
+              onSubmit={handleSubmit}
+              className="space-y-4"
+              id="extraction-review-form"
+            >
               {/* Vendor */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
@@ -303,7 +311,9 @@ export function ExtractionReviewModal({
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                   CUIT{" "}
-                  <span className="text-xs text-slate-400">(formato: 20-12345678-9)</span>
+                  <span className="text-xs text-slate-400">
+                    (formato: 20-12345678-9)
+                  </span>
                 </label>
                 <input
                   id="review-cuit"
@@ -339,9 +349,7 @@ export function ExtractionReviewModal({
                     id="review-document-type"
                     value={documentType}
                     onChange={(e) =>
-                      setDocumentType(
-                        e.target.value as typeof documentType,
-                      )
+                      setDocumentType(e.target.value as typeof documentType)
                     }
                     className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-50 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   >
@@ -443,7 +451,8 @@ export function ExtractionReviewModal({
                     className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
                   >
                     <FileText className="w-3.5 h-3.5" />
-                    {showRawText ? "Ocultar" : "Ver"} texto extraído del documento
+                    {showRawText ? "Ocultar" : "Ver"} texto extraído del
+                    documento
                   </button>
                   {showRawText && (
                     <pre className="mt-2 p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-600 dark:text-slate-300 overflow-x-auto whitespace-pre-wrap max-h-40">

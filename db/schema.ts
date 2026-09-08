@@ -76,6 +76,7 @@ export const documents = appSchema.table(
     fileSize: integer("file_size").notNull(),
     mimeType: varchar("mime_type", { length: 50 }).notNull(),
     filePath: text("file_path").notNull(),
+    uploadFingerprint: varchar("upload_fingerprint", { length: 255 }),
     uploadStatus: varchar("upload_status", { length: 50 })
       .notNull()
       .default("uploaded"),
@@ -101,6 +102,9 @@ export const documents = appSchema.table(
         table.uploadStatus,
       ),
       userIdIdx: index("idx_documents_user_id").on(table.userId),
+      uploadFingerprintUnique: uniqueIndex(
+        "documents_upload_fingerprint_unique",
+      ).on(table.uploadFingerprint),
     };
   },
 );
@@ -115,6 +119,7 @@ export const extractions = appSchema.table(
     documentId: uuid("document_id")
       .notNull()
       .references(() => documents.id, { onDelete: "cascade" }),
+    sourceItemKey: varchar("source_item_key", { length: 255 }).notNull(),
     rawOcrText: text("raw_ocr_text"),
     extractedDate: date("extracted_date"),
     extractedAmount: decimal("extracted_amount", { precision: 15, scale: 2 }),
@@ -140,6 +145,9 @@ export const extractions = appSchema.table(
   (table) => {
     return {
       documentIdIdx: index("idx_extractions_document_id").on(table.documentId),
+      sourceItemKeyUnique: uniqueIndex("extractions_source_item_key_unique").on(
+        table.sourceItemKey,
+      ),
       overallConfidenceIdx: index("idx_extractions_overall_confidence").on(
         sql`${table.overallConfidence} DESC`,
       ),
@@ -190,6 +198,7 @@ export const movements = appSchema.table(
     extractionId: uuid("extraction_id")
       .notNull()
       .references(() => extractions.id, { onDelete: "cascade" }),
+    reviewKey: varchar("review_key", { length: 255 }),
     categoryId: uuid("category_id").references(() => categories.id, {
       onDelete: "set null",
     }),
@@ -230,6 +239,12 @@ export const movements = appSchema.table(
         table.movementType,
       ),
       isReviewedIdx: index("idx_movements_is_reviewed").on(table.isReviewed),
+      extractionIdUnique: uniqueIndex("movements_extraction_id_unique").on(
+        table.extractionId,
+      ),
+      reviewKeyUnique: uniqueIndex("movements_review_key_unique").on(
+        table.reviewKey,
+      ),
     };
   },
 );
@@ -255,6 +270,9 @@ export const ragEmbeddings = appSchema.table(
   (table) => {
     return {
       vendorNameIdx: index("idx_rag_embeddings_vendor").on(table.vendorName),
+      movementCategoryUnique: uniqueIndex(
+        "rag_embeddings_movement_category_unique",
+      ).on(table.movementId, table.categoryId),
     };
   },
 );
@@ -271,7 +289,9 @@ export const extractionMemory = appSchema.table(
     cuit: varchar("cuit", { length: 20 }),
     documentType: varchar("document_type", { length: 50 }).notNull(),
     embedding: vector("embedding", 384).notNull(),
-    extractionHints: jsonb("extraction_hints").notNull().default(sql`'{}'`),
+    extractionHints: jsonb("extraction_hints")
+      .notNull()
+      .default(sql`'{}'`),
     sampleRawText: text("sample_raw_text"),
     usageCount: integer("usage_count").notNull().default(0),
     lastUsedAt: timestamp("last_used_at"),
@@ -285,7 +305,9 @@ export const extractionMemory = appSchema.table(
     return {
       vendorNameIdx: index("idx_extraction_memory_vendor").on(table.vendorName),
       cuitIdx: index("idx_extraction_memory_cuit").on(table.cuit),
-      documentTypeIdx: index("idx_extraction_memory_doc_type").on(table.documentType),
+      documentTypeIdx: index("idx_extraction_memory_doc_type").on(
+        table.documentType,
+      ),
     };
   },
 );
@@ -306,6 +328,7 @@ export const userCorrections = appSchema.table(
     newCategoryId: uuid("new_category_id")
       .notNull()
       .references(() => categories.id, { onDelete: "cascade" }),
+    correctionKey: varchar("correction_key", { length: 255 }),
     reason: text("reason"),
     correctedAt: timestamp("corrected_at").notNull().defaultNow(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -317,6 +340,9 @@ export const userCorrections = appSchema.table(
       ),
       correctedAtIdx: index("idx_user_corrections_corrected_at").on(
         table.correctedAt,
+      ),
+      correctionKeyUnique: uniqueIndex("user_corrections_key_unique").on(
+        table.correctionKey,
       ),
     };
   },
@@ -342,6 +368,10 @@ export const processingJobs = appSchema.table(
     priority: integer("priority").default(0),
     retryCount: integer("retry_count").default(0),
     errorDetails: jsonb("error_details"),
+    payload: jsonb("payload")
+      .notNull()
+      .default(sql`'{}'`),
+    deduplicationKey: varchar("deduplication_key", { length: 255 }).notNull(),
     startedAt: timestamp("started_at"),
     completedAt: timestamp("completed_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -356,6 +386,9 @@ export const processingJobs = appSchema.table(
       documentIdIdx: index("idx_processing_jobs_document_id").on(
         table.documentId,
       ),
+      deduplicationKeyUnique: uniqueIndex(
+        "processing_jobs_deduplication_key_unique",
+      ).on(table.deduplicationKey),
       createdAtIdx: index("idx_processing_jobs_created_at").on(
         sql`${table.createdAt} DESC`,
       ),

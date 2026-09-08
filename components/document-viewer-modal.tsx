@@ -9,24 +9,24 @@ interface DocumentViewerModalProps {
   onClose: () => void;
 }
 
-export function DocumentViewerModal({ documentId, isOpen, onClose }: DocumentViewerModalProps) {
+export function DocumentViewerModal({
+  documentId,
+  isOpen,
+  onClose,
+}: DocumentViewerModalProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const fileUrl = isOpen ? `/api/documents/${documentId}/file` : null;
 
   useEffect(() => {
     if (!isOpen) return;
-    
-    // We can directly use the API route as an iframe source for PDFs or images
-    const url = `/api/documents/${documentId}/file`;
-    setFileUrl(url);
-    
+
     // Reset state via a small timeout to avoid synchronous update warning
     const t = setTimeout(() => {
       setLoading(true);
       setError(null);
     }, 0);
-    
+
     return () => clearTimeout(t);
   }, [isOpen, documentId]);
 
@@ -40,9 +40,9 @@ export function DocumentViewerModal({ documentId, isOpen, onClose }: DocumentVie
           <h2 className="text-lg font-semibold flex items-center gap-2">
             Visor de Documento
             {fileUrl && (
-              <a 
-                href={fileUrl} 
-                target="_blank" 
+              <a
+                href={fileUrl}
+                target="_blank"
                 rel="noopener noreferrer"
                 className="text-blue-500 hover:text-blue-700"
                 title="Abrir en pestaña nueva"
@@ -83,7 +83,11 @@ export function DocumentViewerModal({ documentId, isOpen, onClose }: DocumentVie
               src={fileUrl}
               className="w-full h-full rounded border border-slate-300 dark:border-slate-700 bg-white"
               onLoad={() => setLoading(false)}
-              onError={() => setError("Error al cargar el documento. Puede que no esté disponible o el formato no sea soportado por el navegador.")}
+              onError={() =>
+                setError(
+                  "Error al cargar el documento. Puede que no esté disponible o el formato no sea soportado por el navegador.",
+                )
+              }
               title="Document Viewer"
             />
           )}

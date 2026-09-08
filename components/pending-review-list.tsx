@@ -23,12 +23,18 @@ interface PendingReviewListProps {
   onReviewCompleted?: () => void;
 }
 
-export function PendingReviewList({ onReviewCompleted }: PendingReviewListProps) {
+export function PendingReviewList({
+  onReviewCompleted,
+}: PendingReviewListProps) {
   const [documents, setDocuments] = useState<PendingDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [reviewingDocumentId, setReviewingDocumentId] = useState<string | null>(null);
-  const [reviewingDocumentName, setReviewingDocumentName] = useState<string | undefined>();
+  const [reviewingDocumentId, setReviewingDocumentId] = useState<string | null>(
+    null,
+  );
+  const [reviewingDocumentName, setReviewingDocumentName] = useState<
+    string | undefined
+  >();
 
   const fetchPending = async () => {
     try {
@@ -42,7 +48,9 @@ export function PendingReviewList({ onReviewCompleted }: PendingReviewListProps)
       // Filter for awaiting_review in case the endpoint doesn't support status filter
       const all: PendingDocument[] = data.documents ?? data ?? [];
       setDocuments(
-        all.filter((d: PendingDocument) => d.processingStatus === "awaiting_review"),
+        all.filter(
+          (d: PendingDocument) => d.processingStatus === "awaiting_review",
+        ),
       );
       setError(null);
     } catch (err) {
@@ -53,7 +61,11 @@ export function PendingReviewList({ onReviewCompleted }: PendingReviewListProps)
   };
 
   useEffect(() => {
-    fetchPending();
+    const task = setTimeout(() => {
+      void fetchPending();
+    }, 0);
+
+    return () => clearTimeout(task);
   }, []);
 
   const handleReviewSuccess = () => {
@@ -126,7 +138,7 @@ export function PendingReviewList({ onReviewCompleted }: PendingReviewListProps)
                   <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">
                     {doc.mimeType === "application/pdf"
                       ? "PDF"
-                      : doc.mimeType.split("/")[1]?.toUpperCase() ?? "DOC"}
+                      : (doc.mimeType.split("/")[1]?.toUpperCase() ?? "DOC")}
                   </span>
                 </div>
                 <div className="min-w-0">

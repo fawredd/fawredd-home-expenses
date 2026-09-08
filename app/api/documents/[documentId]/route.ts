@@ -2,7 +2,7 @@
  * GET /api/documents/[documentId]/status
  * Get current upload and processing status
  */
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { successResponse, errorResponse, Logger } from "@/lib/api-utils";
 import { HttpErrors } from "@/lib/api-utils";
 import { db } from "@/db";

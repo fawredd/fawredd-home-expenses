@@ -11,25 +11,26 @@
  *  6. Set document processingStatus → "completed"
  */
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { z } from "zod";
-import {
-  successResponse,
-  errorResponse,
-  Logger,
-} from "@/lib/api-utils";
+import { successResponse, errorResponse, Logger } from "@/lib/api-utils";
 import { HttpErrors } from "@/lib/api-utils";
 import { db } from "@/db";
 import { documents, extractions, movements } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { recordExtractionMemory } from "@/lib/extraction-memory";
-import { recordSuccessfulCategorization, categorizeMovement } from "@/lib/categorization";
+import { recordSuccessfulCategorization } from "@/lib/categorization";
 
 // ---------------------------------------------------------------------------
 // Zod validation schema
 // ---------------------------------------------------------------------------
 const ReviewSchema = z.object({
   vendor: z.string().min(1, "Vendor is required").max(255),
-  cuit: z.string().regex(/^\d{2}-\d{8}-\d{1}$/).optional().or(z.literal("")),
+  cuit: z
+    .string()
+    .regex(/^\d{2}-\d{8}-\d{1}$/)
+    .optional()
+    .or(z.literal("")),
   date: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD format"),
@@ -52,6 +53,7 @@ export async function PUT(
   { params }: { params: Promise<{ documentId: string }> },
 ): Promise<NextResponse> {
   const { documentId } = await params;
+  let reviewProcessing = false;
 
   try {
     Logger.info(`Review submission for document ${documentId}`);
@@ -75,13 +77,69 @@ export async function PUT(
       throw HttpErrors.notFound(`Document ${documentId} not found`);
     }
 
+    const existingReview = await db.query.movements.findFirst({
+      where: and(
+        eq(movements.documentId, documentId),
+        eq(movements.isReviewed, true),
+      ),
+    });
+
+    if (doc.processingStatus === "completed" && existingReview) {
+      return successResponse(
+        {
+          movementId: existingReview.id,
+          documentId,
+          status: "completed",
+        },
+        200,
+        "La revisión ya había sido guardada.",
+      );
+    }
+
     if (
       doc.processingStatus !== "awaiting_review" &&
-      doc.processingStatus !== "failed"
+      doc.processingStatus !== "failed" &&
+      doc.processingStatus !== "reviewing"
     ) {
       throw HttpErrors.badRequest(
         `Document is not awaiting review (current status: ${doc.processingStatus})`,
       );
+    }
+
+    if (doc.processingStatus !== "reviewing") {
+      const claimed = await db
+        .update(documents)
+        .set({ processingStatus: "reviewing" })
+        .where(
+          and(
+            eq(documents.id, documentId),
+            inArray(documents.processingStatus, ["awaiting_review", "failed"]),
+          ),
+        )
+        .returning({ id: documents.id });
+
+      if (claimed.length === 0) {
+        const completedMovement = await db.query.movements.findFirst({
+          where: and(
+            eq(movements.documentId, documentId),
+            eq(movements.isReviewed, true),
+          ),
+        });
+
+        if (completedMovement) {
+          return successResponse({
+            movementId: completedMovement.id,
+            documentId,
+            status: "completed",
+          });
+        }
+
+        throw HttpErrors.conflict("Document review is already being processed");
+      }
+
+      reviewProcessing = true;
+    } else {
+      reviewProcessing = true;
     }
 
     // 3. Find the extraction record for this document
@@ -92,6 +150,31 @@ export async function PUT(
     if (!extraction) {
       throw HttpErrors.notFound(
         `No extraction record found for document ${documentId}`,
+      );
+    }
+
+    const reviewKey = createHash("sha256")
+      .update(`${documentId}:${JSON.stringify(payload)}`)
+      .digest("hex");
+
+    const existingMovement = await db.query.movements.findFirst({
+      where: eq(movements.reviewKey, reviewKey),
+    });
+
+    if (existingMovement) {
+      await db
+        .update(documents)
+        .set({ processingStatus: "completed", processedAt: new Date() })
+        .where(eq(documents.id, documentId));
+
+      return successResponse(
+        {
+          movementId: existingMovement.id,
+          documentId,
+          status: "completed",
+        },
+        200,
+        "La revisión ya había sido guardada.",
       );
     }
 
@@ -123,14 +206,33 @@ export async function PUT(
         currency: payload.currency,
         transactionDate: payload.date,
         movementType: "expense", // default; user can correct later via movement edit
-        description: payload.description ?? `Revisado manualmente — ${payload.vendor}`,
+        description:
+          payload.description ?? `Revisado manualmente — ${payload.vendor}`,
         categorizationMethod: "manual",
         confidenceScore: "1.00",
         isReviewed: true,
         isManualCorrection: true,
         correctedAt: new Date(),
+        reviewKey,
       })
+      .onConflictDoNothing({ target: movements.reviewKey })
       .returning();
+
+    if (!movement) {
+      const duplicateMovement = await db.query.movements.findFirst({
+        where: eq(movements.reviewKey, reviewKey),
+      });
+
+      if (!duplicateMovement) {
+        throw new Error("Review movement conflict without existing movement");
+      }
+
+      return successResponse({
+        movementId: duplicateMovement.id,
+        documentId,
+        status: "completed",
+      });
+    }
 
     Logger.info(`Movement created from user review`, {
       documentId,
@@ -177,6 +279,18 @@ export async function PUT(
     );
   } catch (error) {
     Logger.error(`Review submission failed for document ${documentId}`, error);
+    if (reviewProcessing) {
+      await db
+        .update(documents)
+        .set({ processingStatus: "failed" })
+        .where(eq(documents.id, documentId))
+        .catch((statusError) =>
+          Logger.error(
+            `Failed to update review status for ${documentId}`,
+            statusError,
+          ),
+        );
+    }
     return errorResponse(error, 400);
   }
 }
@@ -228,7 +342,10 @@ export async function GET(
       200,
     );
   } catch (error) {
-    Logger.error(`Failed to fetch review data for document ${documentId}`, error);
+    Logger.error(
+      `Failed to fetch review data for document ${documentId}`,
+      error,
+    );
     return errorResponse(error, 400);
   }
 }

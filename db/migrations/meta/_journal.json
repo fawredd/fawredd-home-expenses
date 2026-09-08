@@ -8,6 +8,20 @@
       "when": 1780325485869,
       "tag": "0000_outstanding_luckman",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788875261654,
+      "tag": "0001_romantic_impossible_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788875909051,
+      "tag": "0002_safe_leper_queen",
+      "breakpoints": true
     }
   ]
 }

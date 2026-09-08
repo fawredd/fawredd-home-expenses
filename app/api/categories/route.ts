@@ -3,7 +3,12 @@
  * List all available categories
  */
 import { NextRequest } from "next/server";
-import { successResponse, errorResponse, Logger, HttpErrors } from "@/lib/api-utils";
+import {
+  successResponse,
+  errorResponse,
+  Logger,
+  HttpErrors,
+} from "@/lib/api-utils";
 import { db } from "@/db";
 import { categories } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -54,10 +59,26 @@ export async function POST(request: NextRequest) {
       throw HttpErrors.badRequest("La categoría ya existe");
     }
 
-    const inserted = await db.insert(categories).values({
-      name,
-      color: color || "#6B7280", // Default gray
-    }).returning();
+    const inserted = await db
+      .insert(categories)
+      .values({
+        name,
+        color: color || "#6B7280", // Default gray
+      })
+      .onConflictDoNothing({ target: categories.name })
+      .returning();
+
+    if (inserted.length === 0) {
+      const existingCategory = await db.query.categories.findFirst({
+        where: eq(categories.name, name),
+      });
+
+      if (!existingCategory) {
+        throw new Error("Category conflict without existing category");
+      }
+
+      return successResponse(existingCategory, 200, "La categoría ya existe");
+    }
 
     return successResponse(inserted[0], 201, "Categoría creada correctamente");
   } catch (error) {

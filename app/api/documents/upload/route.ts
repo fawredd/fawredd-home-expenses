@@ -10,6 +10,7 @@
  *  4. User review endpoint (PUT /api/documents/[id]/review) completes movement creation + records memory
  */
 import { NextRequest } from "next/server";
+import { createHash } from "node:crypto";
 import {
   successResponse,
   errorResponse,
@@ -26,6 +27,7 @@ import {
   validateMagicBytes,
   saveFile,
   getFile,
+  deleteFile,
 } from "@/lib/file-utils";
 import {
   extractDocumentData,
@@ -65,7 +67,10 @@ async function extractFieldsWithHintedPrompt(
 
     const parsed = JSON.parse(aiText) as Record<string, unknown>;
     return {
-      extractedDate: typeof parsed.extractedDate === "string" ? parsed.extractedDate : undefined,
+      extractedDate:
+        typeof parsed.extractedDate === "string"
+          ? parsed.extractedDate
+          : undefined,
       extractedAmount:
         typeof parsed.extractedAmount === "number"
           ? parsed.extractedAmount
@@ -103,11 +108,13 @@ async function insertExtraction(
   documentId: string,
   data: ExtractionData,
   method: string,
+  sourceItemKey: string,
 ) {
   return db
     .insert(extractions)
     .values({
       documentId,
+      sourceItemKey,
       rawOcrText: data.rawText,
       extractedDate: data.extractedDate,
       extractedAmount: data.extractedAmount?.toString() ?? null,
@@ -120,6 +127,7 @@ async function insertExtraction(
       extractionErrors: data.errors,
       extractionMethod: method,
     })
+    .onConflictDoNothing({ target: extractions.sourceItemKey })
     .returning();
 }
 
@@ -149,7 +157,17 @@ jobQueue.registerHandler("extract", async (job) => {
       doc.mimeType,
     );
 
-    for (const extractionData of extractedDocument.items) {
+    for (const [
+      itemIndex,
+      extractionData,
+    ] of extractedDocument.items.entries()) {
+      const sourceItemKey = `${documentId}:${itemIndex}`;
+      const existingExtraction = await db.query.extractions.findFirst({
+        where: eq(extractions.sourceItemKey, sourceItemKey),
+      });
+
+      if (existingExtraction) continue;
+
       const cuit = extractionData.extractedCuit;
       const documentType = extractionData.extractedDocumentType ?? "other";
 
@@ -174,20 +192,30 @@ jobQueue.registerHandler("extract", async (job) => {
         // Merge hinted fields over initial extraction (non-destructive)
         const merged: ExtractionData = { ...extractionData };
         if (hintedFields) {
-          if (hintedFields.extractedDate) merged.extractedDate = hintedFields.extractedDate;
-          if (hintedFields.extractedAmount) merged.extractedAmount = hintedFields.extractedAmount;
-          if (hintedFields.extractedCurrency) merged.extractedCurrency = hintedFields.extractedCurrency;
-          if (hintedFields.extractedVendor) merged.extractedVendor = hintedFields.extractedVendor;
-          if (hintedFields.extractedCuit) merged.extractedCuit = hintedFields.extractedCuit;
-          if (hintedFields.extractedDocumentType) merged.extractedDocumentType = hintedFields.extractedDocumentType;
-          if (hintedFields.extractedDescription) merged.extractedDescription = hintedFields.extractedDescription;
+          if (hintedFields.extractedDate)
+            merged.extractedDate = hintedFields.extractedDate;
+          if (hintedFields.extractedAmount)
+            merged.extractedAmount = hintedFields.extractedAmount;
+          if (hintedFields.extractedCurrency)
+            merged.extractedCurrency = hintedFields.extractedCurrency;
+          if (hintedFields.extractedVendor)
+            merged.extractedVendor = hintedFields.extractedVendor;
+          if (hintedFields.extractedCuit)
+            merged.extractedCuit = hintedFields.extractedCuit;
+          if (hintedFields.extractedDocumentType)
+            merged.extractedDocumentType = hintedFields.extractedDocumentType;
+          if (hintedFields.extractedDescription)
+            merged.extractedDescription = hintedFields.extractedDescription;
         }
 
         const extractionRecord = await insertExtraction(
           documentId,
           merged,
           "memory-hinted",
+          sourceItemKey,
         );
+
+        if (extractionRecord.length === 0) continue;
 
         if (merged.extractedDate && merged.extractedAmount) {
           const categorization = await categorizeMovement(
@@ -238,11 +266,14 @@ jobQueue.registerHandler("extract", async (job) => {
           { documentId, cuit, documentType },
         );
 
-        await insertExtraction(
+        const extractionRecord = await insertExtraction(
           documentId,
           extractionData,
           extractionData.extractionMethod ?? "ocr",
+          sourceItemKey,
         );
+
+        if (extractionRecord.length === 0) continue;
 
         // DO NOT create movement — user must confirm data first
         await db
@@ -264,6 +295,10 @@ jobQueue.registerHandler("extract", async (job) => {
       .where(eq(documents.id, documentId));
     throw error;
   }
+});
+
+void jobQueue.recoverPendingJobs().catch((error) => {
+  Logger.error("Failed to recover pending extraction jobs", error);
 });
 
 // ---------------------------------------------------------------------------
@@ -304,10 +339,11 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      const fingerprint = `${userId}:${createHash("sha256").update(buf).digest("hex")}`;
       const storagePath = await saveFile(buf, file.name);
       Logger.info(`File saved`, { path: storagePath, name: file.name });
 
-      const documentRecord = await db
+      const insertedDocument = await db
         .insert(documents)
         .values({
           filename: file.name,
@@ -317,8 +353,29 @@ export async function POST(request: NextRequest) {
           uploadStatus: "uploaded",
           processingStatus: "pending",
           userId,
+          uploadFingerprint: fingerprint,
         })
+        .onConflictDoNothing({ target: documents.uploadFingerprint })
         .returning();
+
+      let documentRecord = insertedDocument;
+      if (documentRecord.length === 0) {
+        await deleteFile(storagePath).catch((error) =>
+          Logger.warn("Failed to remove duplicate uploaded file", error),
+        );
+
+        const existingDocument = await db.query.documents.findFirst({
+          where: eq(documents.uploadFingerprint, fingerprint),
+        });
+
+        if (!existingDocument) {
+          throw new Error(
+            "Document fingerprint conflict without existing document",
+          );
+        }
+
+        documentRecord = [existingDocument];
+      }
 
       uploadedDocuments.push({
         id: documentRecord[0].id,
@@ -329,7 +386,7 @@ export async function POST(request: NextRequest) {
         uploadedAt: documentRecord[0].uploadedAt,
       });
 
-      const jobId = jobQueue.enqueue(
+      const jobId = await jobQueue.enqueue(
         "extract",
         { documentId: documentRecord[0].id },
         { documentId: documentRecord[0].id, priority: 10, maxRetries: 3 },

@@ -1,7 +1,10 @@
 /**
- * In-memory job queue (later replace with pg-boss)
- * This is a simple implementation for local development
+ * PostgreSQL-backed job queue with an in-memory execution loop.
+ * Files remain on the local filesystem; PostgreSQL persists job state.
  */
+import { db } from "@/db";
+import { processingJobs } from "@/db/schema";
+import { eq, inArray } from "drizzle-orm";
 
 export type JobType = "extract" | "categorize" | "reprocess";
 export type JobStatus =
@@ -25,6 +28,7 @@ export interface Job {
   createdAt: Date;
   startedAt?: Date;
   completedAt?: Date;
+  deduplicationKey: string;
 }
 
 class JobQueue {
@@ -45,7 +49,7 @@ class JobQueue {
   /**
    * Enqueue a job
    */
-  enqueue(
+  async enqueue(
     jobType: JobType,
     payload: Record<string, unknown>,
     options: {
@@ -54,28 +58,107 @@ class JobQueue {
       priority?: number;
       maxRetries?: number;
     } = {},
-  ): string {
-    const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+  ): Promise<string> {
+    const deduplicationKey = `${jobType}:${options.documentId ?? ""}:${options.movementId ?? ""}`;
+    const inserted = await db
+      .insert(processingJobs)
+      .values({
+        jobType,
+        documentId: options.documentId,
+        movementId: options.movementId,
+        priority: options.priority ?? 0,
+        retryCount: 0,
+        jobStatus: "pending",
+        payload,
+        deduplicationKey,
+      })
+      .onConflictDoNothing({ target: processingJobs.deduplicationKey })
+      .returning();
+
+    let persistedJob = inserted[0];
+    if (!persistedJob) {
+      const existing = await db.query.processingJobs.findFirst({
+        where: eq(processingJobs.deduplicationKey, deduplicationKey),
+      });
+
+      if (!existing) {
+        throw new Error(`Unable to persist job ${deduplicationKey}`);
+      }
+
+      if (existing.jobStatus === "failed") {
+        const retried = await db
+          .update(processingJobs)
+          .set({
+            jobStatus: "pending",
+            retryCount: 0,
+            errorDetails: null,
+            completedAt: null,
+          })
+          .where(eq(processingJobs.id, existing.id))
+          .returning();
+        persistedJob = retried[0] ?? existing;
+      } else {
+        persistedJob = existing;
+      }
+    }
+
+    const jobId = persistedJob.id;
     const job: Job = {
       id: jobId,
       jobType,
-      status: "pending",
-      priority: options.priority || 0,
-      retryCount: 0,
-      maxRetries: options.maxRetries || 3,
+      status: persistedJob.jobStatus as JobStatus,
+      priority: persistedJob.priority ?? options.priority ?? 0,
+      retryCount: persistedJob.retryCount ?? 0,
+      maxRetries: options.maxRetries ?? 3,
       payload,
       documentId: options.documentId,
       movementId: options.movementId,
-      createdAt: new Date(),
+      createdAt: persistedJob.createdAt,
+      startedAt: persistedJob.startedAt ?? undefined,
+      completedAt: persistedJob.completedAt ?? undefined,
+      deduplicationKey,
     };
 
-    this.jobs.set(jobId, job);
-    console.log(`[JobQueue] Enqueued job ${jobId} (${jobType})`);
+    if (job.status === "pending" || job.status === "retry") {
+      this.jobs.set(jobId, job);
+      console.log(`[JobQueue] Enqueued job ${jobId} (${jobType})`);
 
-    // Process asynchronously
-    setImmediate(() => this.processNext());
+      // Process asynchronously
+      setImmediate(() => this.processNext());
+    }
 
     return jobId;
+  }
+
+  /** Recover pending jobs after a process restart. */
+  async recoverPendingJobs(): Promise<void> {
+    const pendingJobs = await db
+      .select()
+      .from(processingJobs)
+      .where(inArray(processingJobs.jobStatus, ["pending", "retry"]));
+
+    for (const persistedJob of pendingJobs) {
+      const job: Job = {
+        id: persistedJob.id,
+        jobType: persistedJob.jobType as JobType,
+        status: persistedJob.jobStatus as JobStatus,
+        priority: persistedJob.priority ?? 0,
+        retryCount: persistedJob.retryCount ?? 0,
+        maxRetries: 3,
+        payload: (persistedJob.payload as Record<string, unknown>) ?? {},
+        documentId: persistedJob.documentId ?? undefined,
+        movementId: persistedJob.movementId ?? undefined,
+        createdAt: persistedJob.createdAt,
+        startedAt: persistedJob.startedAt ?? undefined,
+        completedAt: persistedJob.completedAt ?? undefined,
+        deduplicationKey: persistedJob.deduplicationKey,
+      };
+      this.jobs.set(job.id, job);
+    }
+
+    if (pendingJobs.length > 0) {
+      setImmediate(() => this.processNext());
+    }
   }
 
   /**
@@ -110,6 +193,10 @@ class JobQueue {
 
       pending.status = "processing";
       pending.startedAt = new Date();
+      await db
+        .update(processingJobs)
+        .set({ jobStatus: "processing", startedAt: pending.startedAt })
+        .where(eq(processingJobs.id, pending.id));
 
       console.log(
         `[JobQueue] Processing job ${pending.id} (${pending.jobType})`,
@@ -119,6 +206,10 @@ class JobQueue {
 
       pending.status = "completed";
       pending.completedAt = new Date();
+      await db
+        .update(processingJobs)
+        .set({ jobStatus: "completed", completedAt: pending.completedAt })
+        .where(eq(processingJobs.id, pending.id));
       console.log(`[JobQueue] Completed job ${pending.id}`);
     } catch (error) {
       console.error(`[JobQueue] Job ${pending.id} failed:`, error);
@@ -126,6 +217,16 @@ class JobQueue {
       if (pending.retryCount < pending.maxRetries) {
         pending.retryCount++;
         pending.status = "retry";
+        await db
+          .update(processingJobs)
+          .set({
+            jobStatus: "retry",
+            retryCount: pending.retryCount,
+            errorDetails: {
+              message: error instanceof Error ? error.message : String(error),
+            },
+          })
+          .where(eq(processingJobs.id, pending.id));
         console.log(
           `[JobQueue] Retrying job ${pending.id} (attempt ${pending.retryCount}/${pending.maxRetries})`,
         );
@@ -133,6 +234,10 @@ class JobQueue {
         // Retry after delay
         setTimeout(() => {
           pending.status = "pending";
+          void db
+            .update(processingJobs)
+            .set({ jobStatus: "pending" })
+            .where(eq(processingJobs.id, pending.id));
           this.processNext();
         }, 1000 * pending.retryCount);
       } else {
@@ -140,6 +245,14 @@ class JobQueue {
         pending.errorDetails =
           error instanceof Error ? error.message : String(error);
         pending.completedAt = new Date();
+        await db
+          .update(processingJobs)
+          .set({
+            jobStatus: "failed",
+            errorDetails: { message: pending.errorDetails },
+            completedAt: pending.completedAt,
+          })
+          .where(eq(processingJobs.id, pending.id));
       }
     } finally {
       this.processing.delete(pending.id);

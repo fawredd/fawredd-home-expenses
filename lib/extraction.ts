@@ -169,11 +169,15 @@ function findBestVendor(lines: string[]): string | undefined {
   }
 
   const topLines = lines.slice(0, 15).filter(Boolean);
-  
+
   // Try to find a corporate name first
-  const corporateLine = topLines.find(line => /S\.A\.|SRL|S\.R\.L\.|S\.A\.S\.|S\.A\.U\.|S\.C\.|LTD|INC/i.test(line));
+  const corporateLine = topLines.find((line) =>
+    /S\.A\.|SRL|S\.R\.L\.|S\.A\.S\.|S\.A\.U\.|S\.C\.|LTD|INC/i.test(line),
+  );
   if (corporateLine) {
-    const cleanCorp = corporateLine.split(/hoja|p[aá]gina|ref\.|cuit|fecha/i)[0].trim();
+    const cleanCorp = corporateLine
+      .split(/hoja|p[aá]gina|ref\.|cuit|fecha/i)[0]
+      .trim();
     return cleanCorp;
   }
 
@@ -183,8 +187,10 @@ function findBestVendor(lines: string[]): string | undefined {
       line.length > 3 &&
       !LABELS.date.test(line) &&
       !LABELS.amount.test(line) &&
-      !/(cuit|cuil|telefono|tel\.|nro\.|nº|direcci[oó]n|domicilio|dom\.|original|duplicado|factura|recibo|ticket|c[oó]digo|p[aá]gina)\b/i.test(line) &&
-      !/^[A-Z]\s*$/.test(line) // exclude single letter like "A"
+      !/(cuit|cuil|telefono|tel\.|nro\.|nº|direcci[oó]n|domicilio|dom\.|original|duplicado|factura|recibo|ticket|c[oó]digo|p[aá]gina)\b/i.test(
+        line,
+      ) &&
+      !/^[A-Z]\s*$/.test(line), // exclude single letter like "A"
   );
   if (vendorLine) return vendorLine.trim();
 
@@ -242,7 +248,7 @@ export function extractFromText(rawText: string): ExtractionData {
   }
 
   let extractedAmount: number | undefined = undefined;
-  
+
   // First look for lines with explicit "TOTAL"
   const totalLines = lines.filter((line) => /total\b/i.test(line));
   if (totalLines.length > 0) {
@@ -258,7 +264,9 @@ export function extractFromText(rawText: string): ExtractionData {
 
   // Fallback to any line with LABELS.amount
   if (!extractedAmount) {
-    const amountLines = lines.filter((line) => LABELS.amount.test(line) && /\d/.test(line));
+    const amountLines = lines.filter(
+      (line) => LABELS.amount.test(line) && /\d/.test(line),
+    );
     for (const line of amountLines.reverse()) {
       const value = extractAmountFromLine(line);
       if (value) {
@@ -434,13 +442,19 @@ export function buildHintedExtractionPrompt(
   const hintLines: string[] = [];
 
   if (hints.dateLabel) {
-    hintLines.push(`- La fecha aparece cerca de la etiqueta "${hints.dateLabel}"`);
+    hintLines.push(
+      `- La fecha aparece cerca de la etiqueta "${hints.dateLabel}"`,
+    );
   }
   if (hints.amountLabel) {
-    hintLines.push(`- El importe/total aparece cerca de la etiqueta "${hints.amountLabel}"`);
+    hintLines.push(
+      `- El importe/total aparece cerca de la etiqueta "${hints.amountLabel}"`,
+    );
   }
   if (hints.vendorLine !== undefined) {
-    hintLines.push(`- El nombre del proveedor suele estar en la línea ${hints.vendorLine} del documento`);
+    hintLines.push(
+      `- El nombre del proveedor suele estar en la línea ${hints.vendorLine} del documento`,
+    );
   }
   if (hints.currencyHint) {
     hintLines.push(`- La moneda habitual es ${hints.currencyHint}`);
@@ -518,7 +532,9 @@ async function extractTextFromPdf(fileBuffer: Buffer): Promise<string> {
 /**
  * Call Ollama to extract multiple transactions from a bank statement
  */
-export async function extractStatementFromAI(text: string): Promise<ExtractionData[]> {
+export async function extractStatementFromAI(
+  text: string,
+): Promise<ExtractionData[]> {
   try {
     const ollamaUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
     const trimmedText = text.trim().substring(0, 6000);
@@ -550,11 +566,11 @@ Devuelve SOLO el array de JSON.`;
       .trim()
       .replace(/^```(?:json)?/, "")
       .replace(/```$/, "");
-    
+
     let parsed: Record<string, unknown>[] = [];
     try {
       parsed = JSON.parse(aiText);
-    } catch (e) {
+    } catch {
       console.warn("Failed to parse statement JSON from AI:", aiText);
       return [];
     }
@@ -565,19 +581,30 @@ Devuelve SOLO el array de JSON.`;
 
     return parsed.map((item: Record<string, unknown>) => ({
       rawText: "",
-      extractedDate: item.extractedDate || undefined,
-      extractedAmount: typeof item.extractedAmount === "number" 
-        ? item.extractedAmount 
-        : parseAmount(String(item.extractedAmount || "")) || undefined,
-      extractedCurrency: item.extractedCurrency || "ARS",
-      extractedVendor: item.extractedVendor || "Unknown",
+      extractedDate:
+        typeof item.extractedDate === "string" ? item.extractedDate : undefined,
+      extractedAmount:
+        typeof item.extractedAmount === "number"
+          ? item.extractedAmount
+          : parseAmount(String(item.extractedAmount || "")) || undefined,
+      extractedCurrency:
+        typeof item.extractedCurrency === "string"
+          ? item.extractedCurrency
+          : "ARS",
+      extractedVendor:
+        typeof item.extractedVendor === "string"
+          ? item.extractedVendor
+          : "Unknown",
       extractedDocumentType: "statement",
-      extractedDescription: item.extractedDescription || "",
+      extractedDescription:
+        typeof item.extractedDescription === "string"
+          ? item.extractedDescription
+          : "",
       confidenceScores: {
         date: 0.9,
         amount: 0.9,
         vendor: 0.9,
-        documentType: 0.9
+        documentType: 0.9,
       },
       overallConfidence: 0.9,
       errors: [],
@@ -623,13 +650,16 @@ export async function extractDocumentData(
   extraction.extractionMethod = extractionMethod;
   extraction.extractedCuit = extractCuit(rawText);
 
-  if (extraction.extractedDocumentType === "statement" || detectDocumentType(rawText) === "statement") {
+  if (
+    extraction.extractedDocumentType === "statement" ||
+    detectDocumentType(rawText) === "statement"
+  ) {
     // If it's a statement, use the AI statement extractor
     const aiItems = await extractStatementFromAI(rawText);
     if (aiItems.length > 0) {
       return {
         type: "statement",
-        items: aiItems.map(item => ({
+        items: aiItems.map((item) => ({
           ...item,
           rawText, // preserve raw text for debugging
           extractionMethod: "ai-statement",

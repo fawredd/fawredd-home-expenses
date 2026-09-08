@@ -349,12 +349,17 @@ export async function recordSuccessfulCategorization(
   try {
     const embedding = generateTextEmbedding(vendorName);
 
-    await db.insert(ragEmbeddings).values({
-      movementId,
-      vendorName: vendorName ?? "",
-      categoryId,
-      embedding,
-    });
+    await db
+      .insert(ragEmbeddings)
+      .values({
+        movementId,
+        vendorName: vendorName ?? "",
+        categoryId,
+        embedding,
+      })
+      .onConflictDoNothing({
+        target: [ragEmbeddings.movementId, ragEmbeddings.categoryId],
+      });
 
     console.log(
       `[Learning] Recorded successful categorization: ${vendorName} → ${categoryId}`,

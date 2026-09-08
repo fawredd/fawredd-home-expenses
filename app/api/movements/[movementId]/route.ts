@@ -1,5 +1,11 @@
 import { NextRequest } from "next/server";
-import { successResponse, errorResponse, Logger, HttpErrors } from "@/lib/api-utils";
+import { createHash } from "node:crypto";
+import {
+  successResponse,
+  errorResponse,
+  Logger,
+  HttpErrors,
+} from "@/lib/api-utils";
 import { db } from "@/db";
 import { movements, categories, userCorrections } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -8,12 +14,13 @@ import { recordSuccessfulCategorization } from "@/lib/categorization";
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: Promise<{ movementId: string }> }
+  { params }: { params: Promise<{ movementId: string }> },
 ) {
   try {
     const { movementId } = await params;
     const rawBody = await request.json();
-    const { categoryId, vendorName, amount, transactionDate, reason } = UpdateMovementSchema.parse(rawBody);
+    const { categoryId, vendorName, amount, transactionDate, reason } =
+      UpdateMovementSchema.parse(rawBody);
 
     Logger.info(`Updating movement: ${movementId}`);
 
@@ -46,18 +53,43 @@ export async function PUT(
         throw HttpErrors.notFound("Category");
       }
 
-      await db.insert(userCorrections).values({
-        movementId,
-        newCategoryId: categoryId,
-        oldCategoryId: movement.categoryId ?? undefined,
-        reason: reason ?? undefined,
-      });
+      const correctionKey = createHash("sha256")
+        .update(
+          JSON.stringify({
+            movementId,
+            categoryId,
+            vendorName: vendorName ?? movement.vendorName,
+            amount: amount ?? movement.amount,
+            transactionDate: transactionDate ?? movement.transactionDate,
+            reason: reason ?? "",
+          }),
+        )
+        .digest("hex");
+
+      await db
+        .insert(userCorrections)
+        .values({
+          movementId,
+          newCategoryId: categoryId,
+          oldCategoryId: movement.categoryId ?? undefined,
+          reason: reason ?? undefined,
+          correctionKey,
+        })
+        .onConflictDoNothing({ target: userCorrections.correctionKey });
 
       const updatedVendor = vendorName || movement.vendorName || "";
-      await recordSuccessfulCategorization(updatedVendor, categoryId, movementId);
+      await recordSuccessfulCategorization(
+        updatedVendor,
+        categoryId,
+        movementId,
+      );
     } else if (vendorName && movement.categoryId) {
       // If vendor changed but category didn't, still record it as a successful categorization for RAG learning
-      await recordSuccessfulCategorization(vendorName, movement.categoryId, movementId);
+      await recordSuccessfulCategorization(
+        vendorName,
+        movement.categoryId,
+        movementId,
+      );
     }
 
     const updated = await db
@@ -69,7 +101,7 @@ export async function PUT(
     return successResponse(
       updated[0],
       200,
-      "Movimiento actualizado correctamente"
+      "Movimiento actualizado correctamente",
     );
   } catch (error) {
     Logger.error("Failed to update movement", error);

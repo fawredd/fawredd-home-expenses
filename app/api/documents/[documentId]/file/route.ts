@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Logger, HttpErrors } from "@/lib/api-utils";
+import { Logger } from "@/lib/api-utils";
 import { db } from "@/db";
 import { documents } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -7,7 +7,7 @@ import { getFile } from "@/lib/file-utils";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ documentId: string }> }
+  { params }: { params: Promise<{ documentId: string }> },
 ) {
   try {
     const { documentId } = await params;
@@ -26,7 +26,7 @@ export async function GET(
     }
 
     const fileBuffer = await getFile(doc.filePath);
-    
+
     return new NextResponse(fileBuffer as unknown as BodyInit, {
       status: 200,
       headers: {

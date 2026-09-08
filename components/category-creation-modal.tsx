@@ -28,6 +28,7 @@ export function CategoryCreationModal({
       return;
     }
 
+    let completed = false;
     try {
       setSubmitting(true);
       setError(null);
@@ -43,18 +44,20 @@ export function CategoryCreationModal({
         throw new Error(errorData.message || "Error al crear la categoría");
       }
 
+      completed = true;
       setSuccess(true);
       setTimeout(() => {
         onSuccess?.();
         onClose();
         setSuccess(false);
+        setSubmitting(false);
         setName("");
         setColor("#6B7280");
       }, 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
-      setSubmitting(false);
+      if (!completed) setSubmitting(false);
     }
   };
 

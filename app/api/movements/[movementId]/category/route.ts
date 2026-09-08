@@ -3,6 +3,7 @@
  * Get current category and confidence for a movement
  */
 import { NextRequest } from "next/server";
+import { createHash } from "node:crypto";
 import { successResponse, errorResponse, Logger } from "@/lib/api-utils";
 import { HttpErrors } from "@/lib/api-utils";
 import { db } from "@/db";
@@ -83,7 +84,7 @@ export async function PUT(
     }
 
     // Update movement with corrected category
-    const updated = await db
+    await db
       .update(movements)
       .set({
         categoryId,
@@ -110,7 +111,14 @@ export async function PUT(
       correctionValues.oldCategoryId = movement.categoryId;
     }
 
-    await db.insert(userCorrections).values(correctionValues);
+    const correctionKey = createHash("sha256")
+      .update(JSON.stringify({ movementId, categoryId, reason: reason ?? "" }))
+      .digest("hex");
+
+    await db
+      .insert(userCorrections)
+      .values({ ...correctionValues, correctionKey })
+      .onConflictDoNothing({ target: userCorrections.correctionKey });
 
     await recordSuccessfulCategorization(
       movement.vendorName ?? "",
