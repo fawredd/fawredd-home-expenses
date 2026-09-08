@@ -60,6 +60,7 @@ export interface ExtractionResult {
 // Movement Types
 export interface MovementWithCategory {
   id: string;
+  documentId: string;
   transactionDate: string;
   vendor?: string;
   amount: number;
@@ -181,6 +182,19 @@ export const UpdateCategorySchema = z.object({
   reason: z.string().optional(),
 });
 
+export const CreateCategorySchema = z.object({
+  name: z.string().min(1).max(100),
+  color: z.string().length(7).regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+});
+
+export const UpdateMovementSchema = z.object({
+  categoryId: z.string().uuid().optional(),
+  vendorName: z.string().min(1).max(255).optional(),
+  amount: z.number().positive().optional(),
+  transactionDate: z.string().date().optional(),
+  reason: z.string().optional(),
+});
+
 export const DashboardFilterSchema = z.object({
   startDate: z.string().date().optional(),
   endDate: z.string().date().optional(),
@@ -198,4 +212,6 @@ export const DashboardFilterSchema = z.object({
 export type DocumentUpload = z.infer<typeof DocumentUploadSchema>;
 export type UpdateExtraction = z.infer<typeof UpdateExtractionSchema>;
 export type UpdateCategory = z.infer<typeof UpdateCategorySchema>;
+export type CreateCategory = z.infer<typeof CreateCategorySchema>;
+export type UpdateMovement = z.infer<typeof UpdateMovementSchema>;
 export type DashboardFilter = z.infer<typeof DashboardFilterSchema>;

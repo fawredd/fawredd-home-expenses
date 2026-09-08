@@ -10,7 +10,7 @@ import {
   AnnualSummaryTable,
 } from "@/components/summary-tables";
 import { CategoryBreakdownTable } from "@/components/category-breakdown";
-import { CategoryCorrectionModal } from "@/components/category-correction-modal";
+import { MovementCorrectionModal } from "@/components/movement-correction-modal";
 
 type TabType = "upload" | "movements" | "monthly" | "annual" | "categories";
 
@@ -141,7 +141,7 @@ export default function HomeClient() {
       </div>
 
       {/* Category Correction Modal */}
-      <CategoryCorrectionModal
+      <MovementCorrectionModal
         movementId={selectedMovementId || ""}
         isOpen={selectedMovementId !== null}
         onClose={() => setSelectedMovementId(null)}

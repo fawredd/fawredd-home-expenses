@@ -120,6 +120,7 @@ export const extractions = appSchema.table(
     extractedAmount: decimal("extracted_amount", { precision: 15, scale: 2 }),
     extractedCurrency: varchar("extracted_currency", { length: 3 }),
     extractedVendor: varchar("extracted_vendor", { length: 255 }),
+    extractedCuit: varchar("extracted_cuit", { length: 20 }),
     extractedDocumentType: varchar("extracted_document_type", { length: 50 }),
     extractedDescription: text("extracted_description"),
     confidenceScores: jsonb("confidence_scores")
@@ -254,6 +255,37 @@ export const ragEmbeddings = appSchema.table(
   (table) => {
     return {
       vendorNameIdx: index("idx_rag_embeddings_vendor").on(table.vendorName),
+    };
+  },
+);
+
+/**
+ * Extraction Memory table - RAG-guided extraction hints per vendor/cuit/doc-type
+ * Stores HOW to extract data from a specific document profile so the app learns
+ */
+export const extractionMemory = appSchema.table(
+  "extraction_memory",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    vendorName: varchar("vendor_name", { length: 255 }).notNull(),
+    cuit: varchar("cuit", { length: 20 }),
+    documentType: varchar("document_type", { length: 50 }).notNull(),
+    embedding: vector("embedding", 384).notNull(),
+    extractionHints: jsonb("extraction_hints").notNull().default(sql`'{}'`),
+    sampleRawText: text("sample_raw_text"),
+    usageCount: integer("usage_count").notNull().default(0),
+    lastUsedAt: timestamp("last_used_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdateFn(() => new Date()),
+  },
+  (table) => {
+    return {
+      vendorNameIdx: index("idx_extraction_memory_vendor").on(table.vendorName),
+      cuitIdx: index("idx_extraction_memory_cuit").on(table.cuit),
+      documentTypeIdx: index("idx_extraction_memory_doc_type").on(table.documentType),
     };
   },
 );

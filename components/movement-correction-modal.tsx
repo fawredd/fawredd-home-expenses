@@ -10,26 +10,30 @@ interface Category {
   color?: string;
 }
 
-interface CategoryCorrectionModalProps {
+interface MovementCorrectionModalProps {
   movementId: string;
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
 }
 
-export function CategoryCorrectionModal({
+export function MovementCorrectionModal({
   movementId,
   isOpen,
   onClose,
   onSuccess,
-}: CategoryCorrectionModalProps) {
+}: MovementCorrectionModalProps) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  
+  const [vendorName, setVendorName] = useState("");
+  const [amount, setAmount] = useState<number | "">("");
+  const [transactionDate, setTransactionDate] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("");
+  
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [currentCategory, setCurrentCategory] = useState<string>("");
 
   useEffect(() => {
     if (!isOpen) return;
@@ -50,8 +54,12 @@ export function CategoryCorrectionModal({
         const movementData = await movementRes.json();
 
         setCategories(catsData.categories || []);
-        setCurrentCategory(movementData.categoryId || "");
-        setSelectedCategory(movementData.categoryId || "");
+        
+        const data = movementData.data || movementData;
+        setVendorName(data.vendor || "");
+        setAmount(data.amount || "");
+        setTransactionDate(data.transactionDate ? new Date(data.transactionDate).toISOString().split('T')[0] : "");
+        setSelectedCategory(data.categoryId || "");
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unknown error");
@@ -69,20 +77,29 @@ export function CategoryCorrectionModal({
       setError("Por favor selecciona una categoría");
       return;
     }
+    if (!vendorName.trim() || !amount || !transactionDate) {
+      setError("Todos los campos son requeridos");
+      return;
+    }
 
     try {
       setSubmitting(true);
       setError(null);
 
-      const res = await fetch(`/api/movements/${movementId}/category`, {
+      const res = await fetch(`/api/movements/${movementId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ categoryId: selectedCategory }),
+        body: JSON.stringify({ 
+          categoryId: selectedCategory,
+          vendorName: vendorName.trim(),
+          amount: Number(amount),
+          transactionDate
+        }),
       });
 
       if (!res.ok) {
         const errorData = await res.json();
-        throw new Error(errorData.message || "Failed to update category");
+        throw new Error(errorData.message || "Failed to update movement");
       }
 
       setSuccess(true);
@@ -100,16 +117,12 @@ export function CategoryCorrectionModal({
 
   if (!isOpen) return null;
 
-  const currentCategoryName = categories.find(
-    (c) => c.id === currentCategory,
-  )?.name;
-
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-lg max-w-md w-full">
+      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
-          <h2 className="text-lg font-semibold">Actualizar Categoría</h2>
+          <h2 className="text-lg font-semibold">Editar Movimiento</h2>
           <button
             onClick={onClose}
             className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
@@ -124,7 +137,7 @@ export function CategoryCorrectionModal({
             <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg flex items-center gap-2">
               <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
               <span className="text-sm text-green-700 dark:text-green-200">
-                Categoría actualizada correctamente
+                Movimiento actualizado correctamente
               </span>
             </div>
           )}
@@ -144,23 +157,56 @@ export function CategoryCorrectionModal({
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
-              {currentCategoryName && (
-                <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-lg">
-                  <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">
-                    Categoría actual
-                  </p>
-                  <p className="font-medium">{currentCategoryName}</p>
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Fecha
+                </label>
+                <input
+                  type="date"
+                  value={transactionDate}
+                  onChange={(e) => setTransactionDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-50 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+              </div>
 
               <div>
                 <label className="block text-sm font-medium mb-2">
-                  Nueva Categoría
+                  Vendedor / Concepto
+                </label>
+                <input
+                  type="text"
+                  value={vendorName}
+                  onChange={(e) => setVendorName(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-50 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Monto
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value === "" ? "" : Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-50 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Categoría
                 </label>
                 <select
                   value={selectedCategory}
                   onChange={(e) => setSelectedCategory(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-50 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
                 >
                   <option value="">-- Selecciona una categoría --</option>
                   {categories.map((category) => (
@@ -170,28 +216,6 @@ export function CategoryCorrectionModal({
                   ))}
                 </select>
               </div>
-
-              {/* Category Preview */}
-              {selectedCategory && selectedCategory !== currentCategory && (
-                <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                  <p className="text-xs text-blue-600 dark:text-blue-400 mb-1">
-                    Nueva categoría seleccionada
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="w-3 h-3 rounded-full flex-shrink-0"
-                      style={{
-                        backgroundColor:
-                          categories.find((c) => c.id === selectedCategory)
-                            ?.color || "#6B7280",
-                      }}
-                    />
-                    <p className="font-medium">
-                      {categories.find((c) => c.id === selectedCategory)?.name}
-                    </p>
-                  </div>
-                </div>
-              )}
 
               {/* Actions */}
               <div className="flex gap-2 pt-4">
@@ -206,11 +230,7 @@ export function CategoryCorrectionModal({
                 </Button>
                 <Button
                   type="submit"
-                  disabled={
-                    submitting ||
-                    !selectedCategory ||
-                    selectedCategory === currentCategory
-                  }
+                  disabled={submitting || !selectedCategory || !vendorName || !amount || !transactionDate}
                   className="flex-1"
                 >
                   {submitting ? "Guardando..." : "Guardar"}

@@ -3,10 +3,11 @@
  * List all available categories
  */
 import { NextRequest } from "next/server";
-import { successResponse, errorResponse, Logger } from "@/lib/api-utils";
+import { successResponse, errorResponse, Logger, HttpErrors } from "@/lib/api-utils";
 import { db } from "@/db";
 import { categories } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { CreateCategorySchema } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
   try {
@@ -33,6 +34,34 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     Logger.error("Failed to fetch categories", error);
+    return errorResponse(error);
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const rawBody = await request.json();
+    const { name, color } = CreateCategorySchema.parse(rawBody);
+
+    Logger.info(`Creating new category: ${name}`);
+
+    // Check if category already exists
+    const existing = await db.query.categories.findFirst({
+      where: eq(categories.name, name),
+    });
+
+    if (existing) {
+      throw HttpErrors.badRequest("La categoría ya existe");
+    }
+
+    const inserted = await db.insert(categories).values({
+      name,
+      color: color || "#6B7280", // Default gray
+    }).returning();
+
+    return successResponse(inserted[0], 201, "Categoría creada correctamente");
+  } catch (error) {
+    Logger.error("Failed to create category", error);
     return errorResponse(error);
   }
 }

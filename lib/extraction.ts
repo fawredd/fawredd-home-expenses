@@ -9,6 +9,7 @@ export interface ExtractionData {
   extractedAmount?: number;
   extractedCurrency: string;
   extractedVendor?: string;
+  extractedCuit?: string;
   extractedDocumentType?:
     | "receipt"
     | "invoice"
@@ -20,6 +21,11 @@ export interface ExtractionData {
   overallConfidence: number;
   errors: string[];
   extractionMethod?: string;
+}
+
+export interface ExtractedDocument {
+  type: "single" | "statement";
+  items: ExtractionData[];
 }
 
 // Regex patterns for extraction
@@ -96,6 +102,23 @@ function extractCurrency(line: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Extract Argentine CUIT/CUIL number from text
+ * Format: XX-XXXXXXXX-X (11 digits with dashes)
+ */
+export function extractCuit(text: string): string | undefined {
+  // CUIT with dashes: 20-12345678-9
+  const dashMatch = text.match(/\b(\d{2}-\d{8}-\d{1})\b/);
+  if (dashMatch) return dashMatch[1];
+  // CUIT without dashes: 20123456789 (11 digits)
+  const rawMatch = text.match(/\b(\d{11})\b/);
+  if (rawMatch) {
+    const raw = rawMatch[1];
+    return `${raw.slice(0, 2)}-${raw.slice(2, 10)}-${raw.slice(10)}`;
+  }
+  return undefined;
+}
+
 function extractAmountFromLine(line: string): number | undefined {
   const symbolMatch = line.match(PATTERNS.amountSymbol);
   if (symbolMatch) {
@@ -145,13 +168,23 @@ function findBestVendor(lines: string[]): string | undefined {
       : candidate.trim();
   }
 
-  const topLines = lines.slice(0, 8).filter(Boolean);
+  const topLines = lines.slice(0, 15).filter(Boolean);
+  
+  // Try to find a corporate name first
+  const corporateLine = topLines.find(line => /S\.A\.|SRL|S\.R\.L\.|S\.A\.S\.|S\.A\.U\.|S\.C\.|LTD|INC/i.test(line));
+  if (corporateLine) {
+    const cleanCorp = corporateLine.split(/hoja|p[aá]gina|ref\.|cuit|fecha/i)[0].trim();
+    return cleanCorp;
+  }
+
   const vendorLine = topLines.find(
     (line) =>
       /^[A-ZÁÉÍÓÚÑ]/.test(line) &&
+      line.length > 3 &&
       !LABELS.date.test(line) &&
       !LABELS.amount.test(line) &&
-      !/cuit|cuil|telefono|tel\.|nro\.|direcci[oó]n|domicilio/i.test(line),
+      !/(cuit|cuil|telefono|tel\.|nro\.|nº|direcci[oó]n|domicilio|dom\.|original|duplicado|factura|recibo|ticket|c[oó]digo|p[aá]gina)\b/i.test(line) &&
+      !/^[A-Z]\s*$/.test(line) // exclude single letter like "A"
   );
   if (vendorLine) return vendorLine.trim();
 
@@ -208,20 +241,45 @@ export function extractFromText(rawText: string): ExtractionData {
     confidenceScores.date = 0;
   }
 
-  let extractedAmount = extractAmountFromLine(
-    lines.find((line) => LABELS.amount.test(line)) || "",
-  );
+  let extractedAmount: number | undefined = undefined;
+  
+  // First look for lines with explicit "TOTAL"
+  const totalLines = lines.filter((line) => /total\b/i.test(line));
+  if (totalLines.length > 0) {
+    // If multiple TOTAL lines, usually the last one is the grand total
+    for (const line of totalLines.reverse()) {
+      const value = extractAmountFromLine(line);
+      if (value) {
+        extractedAmount = value;
+        break;
+      }
+    }
+  }
 
+  // Fallback to any line with LABELS.amount
   if (!extractedAmount) {
+    const amountLines = lines.filter((line) => LABELS.amount.test(line) && /\d/.test(line));
+    for (const line of amountLines.reverse()) {
+      const value = extractAmountFromLine(line);
+      if (value) {
+        extractedAmount = value;
+        break;
+      }
+    }
+  }
+
+  // Last resort: find the highest currency-like number
+  if (!extractedAmount) {
+    let maxAmount = 0;
     for (const line of lines) {
       if (/\d/.test(line)) {
         const value = extractAmountFromLine(line);
-        if (value) {
-          extractedAmount = value;
-          break;
+        if (value && value > maxAmount) {
+          maxAmount = value;
         }
       }
     }
+    if (maxAmount > 0) extractedAmount = maxAmount;
   }
 
   if (extractedAmount) {
@@ -277,7 +335,7 @@ export async function extractViaOllama(imageBase64: string): Promise<string> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "mistral",
+        model: "qwen3.5:4b",
         prompt: `Extract all text from this document image. Focus on: dates, amounts, vendor name, currency. Be precise.\n\n[IMAGE_DATA: ${imageBase64}]`,
         stream: false,
       }),
@@ -310,7 +368,7 @@ async function extractFieldsFromAI(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "mistral",
+        model: "qwen3.5:4b",
         prompt,
         stream: false,
       }),
@@ -363,6 +421,38 @@ async function extractFieldsFromAI(
     console.warn("AI field extraction failed:", error);
     return {};
   }
+}
+
+/**
+ * Build an AI extraction prompt enhanced with hints from extraction memory.
+ * Used when a known vendor/cuit/docType match is found to guide the model.
+ */
+export function buildHintedExtractionPrompt(
+  rawText: string,
+  hints: Record<string, unknown>,
+): string {
+  const hintLines: string[] = [];
+
+  if (hints.dateLabel) {
+    hintLines.push(`- La fecha aparece cerca de la etiqueta "${hints.dateLabel}"`);
+  }
+  if (hints.amountLabel) {
+    hintLines.push(`- El importe/total aparece cerca de la etiqueta "${hints.amountLabel}"`);
+  }
+  if (hints.vendorLine !== undefined) {
+    hintLines.push(`- El nombre del proveedor suele estar en la línea ${hints.vendorLine} del documento`);
+  }
+  if (hints.currencyHint) {
+    hintLines.push(`- La moneda habitual es ${hints.currencyHint}`);
+  }
+
+  const hintSection =
+    hintLines.length > 0
+      ? `\n\nPistas de extracción (basadas en documentos anteriores de este proveedor):\n${hintLines.join("\n")}`
+      : "";
+
+  const trimmedText = rawText.trim().substring(0, 4500);
+  return `Eres un extractor financiero experto. Extrae solo JSON válido con las siguientes claves: extractedDate (YYYY-MM-DD), extractedAmount (número), extractedCurrency, extractedVendor, extractedCuit (formato XX-XXXXXXXX-X), extractedDocumentType, extractedDescription.${hintSection}\n\nTexto del documento:\n${trimmedText}\n\nDevuelve solo JSON.`;
 }
 
 /**
@@ -426,12 +516,85 @@ async function extractTextFromPdf(fileBuffer: Buffer): Promise<string> {
 }
 
 /**
+ * Call Ollama to extract multiple transactions from a bank statement
+ */
+export async function extractStatementFromAI(text: string): Promise<ExtractionData[]> {
+  try {
+    const ollamaUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+    const trimmedText = text.trim().substring(0, 6000);
+    const prompt = `Eres un extractor financiero experto. El siguiente texto es un estado de cuenta bancario. Extrae TODAS las transacciones bancarias. Devuelve estrictamente una lista (array) de objetos JSON, donde cada objeto tenga las siguientes claves: "extractedDate" (YYYY-MM-DD), "extractedAmount" (número positivo siempre), "extractedCurrency" (ej. "ARS", "USD"), "extractedVendor" (nombre del comercio o concepto), "extractedDocumentType" (siempre "statement"), "extractedDescription" (descripción adicional o "Ingreso"/"Gasto"). 
+
+Para determinar si es un gasto o ingreso, si el monto resta del balance, el extractedDescription debe decir "Gasto". Si suma, debe decir "Ingreso".
+
+Texto del documento:
+${trimmedText}
+
+Devuelve SOLO el array de JSON.`;
+
+    const response = await fetch(`${ollamaUrl}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "qwen3.5:4b",
+        prompt,
+        stream: false,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Ollama statement extraction failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const aiText = (data.response || "")
+      .trim()
+      .replace(/^```(?:json)?/, "")
+      .replace(/```$/, "");
+    
+    let parsed: Record<string, unknown>[] = [];
+    try {
+      parsed = JSON.parse(aiText);
+    } catch (e) {
+      console.warn("Failed to parse statement JSON from AI:", aiText);
+      return [];
+    }
+
+    if (!Array.isArray(parsed)) {
+      parsed = [parsed];
+    }
+
+    return parsed.map((item: Record<string, unknown>) => ({
+      rawText: "",
+      extractedDate: item.extractedDate || undefined,
+      extractedAmount: typeof item.extractedAmount === "number" 
+        ? item.extractedAmount 
+        : parseAmount(String(item.extractedAmount || "")) || undefined,
+      extractedCurrency: item.extractedCurrency || "ARS",
+      extractedVendor: item.extractedVendor || "Unknown",
+      extractedDocumentType: "statement",
+      extractedDescription: item.extractedDescription || "",
+      confidenceScores: {
+        date: 0.9,
+        amount: 0.9,
+        vendor: 0.9,
+        documentType: 0.9
+      },
+      overallConfidence: 0.9,
+      errors: [],
+    }));
+  } catch (error) {
+    console.warn("AI statement extraction failed:", error);
+    return [];
+  }
+}
+
+/**
  * Main extraction function - tries PDF parsing or OCR first, then AI can enhance missing fields
  */
 export async function extractDocumentData(
   fileBuffer: Buffer,
   mimeType: string,
-): Promise<ExtractionData> {
+): Promise<ExtractedDocument> {
   let rawText = "";
   let extractionMethod = "ocr";
 
@@ -458,7 +621,24 @@ export async function extractDocumentData(
 
   let extraction = extractFromText(rawText);
   extraction.extractionMethod = extractionMethod;
+  extraction.extractedCuit = extractCuit(rawText);
 
+  if (extraction.extractedDocumentType === "statement" || detectDocumentType(rawText) === "statement") {
+    // If it's a statement, use the AI statement extractor
+    const aiItems = await extractStatementFromAI(rawText);
+    if (aiItems.length > 0) {
+      return {
+        type: "statement",
+        items: aiItems.map(item => ({
+          ...item,
+          rawText, // preserve raw text for debugging
+          extractionMethod: "ai-statement",
+        })),
+      };
+    }
+  }
+
+  // Fallback to single document extraction
   const needsAiEnhancement =
     extraction.overallConfidence < 0.75 ||
     !extraction.extractedVendor ||
@@ -497,7 +677,10 @@ export async function extractDocumentData(
     extraction.extractionMethod = `${extractionMethod}-ai-enhanced`;
   }
 
-  return extraction;
+  return {
+    type: "single",
+    items: [extraction],
+  };
 }
 
 /**

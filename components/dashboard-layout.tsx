@@ -5,6 +5,8 @@ import { Moon, Sun, Menu } from "lucide-react";
 import { SignOutButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 
+import { CategoryCreationModal } from "@/components/category-creation-modal";
+
 interface DashboardLayoutProps {
   children: React.ReactNode;
 }
@@ -12,6 +14,7 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [isDark, setIsDark] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
 
   const toggleTheme = () => {
     setIsDark(!isDark);
@@ -38,9 +41,17 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   💰 FAWREDD
                 </h1>
               </div>
-
-              {/* Theme Toggle */}
+              {/* Actions */}
               <div className="flex items-center gap-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsCategoryModalOpen(true)}
+                  className="hidden md:flex border-slate-200 dark:border-slate-700"
+                >
+                  + Nueva Categoría
+                </Button>
+
                 <button
                   onClick={toggleTheme}
                   className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
@@ -75,6 +86,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {children}
         </main>
+
+        <CategoryCreationModal 
+          isOpen={isCategoryModalOpen} 
+          onClose={() => setIsCategoryModalOpen(false)} 
+          onSuccess={() => window.location.reload()} 
+        />
 
         {/* Footer */}
         <footer className="border-t border-slate-200 dark:border-slate-800 py-8 mt-16">

@@ -7,11 +7,14 @@ import {
   ChevronRight,
   AlertCircle,
   Edit2,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DocumentViewerModal } from "@/components/document-viewer-modal";
 
 interface Movement {
   id: string;
+  documentId: string;
   transactionDate: string;
   vendor: string;
   amount: number;
@@ -34,6 +37,7 @@ export function MovementsTable({ onCategoryEdit }: MovementsTableProps) {
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
+  const [viewingDocumentId, setViewingDocumentId] = useState<string | null>(null);
   const limit = 50;
 
   const [filters, setFilters] = useState({
@@ -233,7 +237,7 @@ export function MovementsTable({ onCategoryEdit }: MovementsTableProps) {
                     Estado
                   </th>
                   <th className="px-4 py-3 text-center font-semibold">
-                    Acción
+                    Acciones
                   </th>
                 </tr>
               </thead>
@@ -285,13 +289,22 @@ export function MovementsTable({ onCategoryEdit }: MovementsTableProps) {
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => onCategoryEdit?.(movement.id)}
-                        className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
-                        title="Editar categoría"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center justify-center gap-3">
+                        <button
+                          onClick={() => setViewingDocumentId(movement.documentId)}
+                          className="text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                          title="Ver documento"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => onCategoryEdit?.(movement.id)}
+                          className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+                          title="Editar movimiento"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -339,6 +352,13 @@ export function MovementsTable({ onCategoryEdit }: MovementsTableProps) {
           </div>
         </>
       )}
+
+      {/* Document Viewer Modal */}
+      <DocumentViewerModal
+        documentId={viewingDocumentId || ""}
+        isOpen={viewingDocumentId !== null}
+        onClose={() => setViewingDocumentId(null)}
+      />
     </div>
   );
 }

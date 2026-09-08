@@ -1,6 +1,13 @@
 /**
  * POST /api/documents/upload
  * Upload one or multiple financial documents
+ *
+ * NEW FLOW (TASK-046):
+ *  1. Extract raw text + initial field inference
+ *  2. Query extraction_memory by CUIT + document_type
+ *  3a. Memory found (≥ 85% confidence) → hinted AI extraction → create movement → reinforce memory
+ *  3b. No memory → save partial extraction → set processingStatus = "awaiting_review"
+ *  4. User review endpoint (PUT /api/documents/[id]/review) completes movement creation + records memory
  */
 import { NextRequest } from "next/server";
 import {
@@ -20,10 +27,105 @@ import {
   saveFile,
   getFile,
 } from "@/lib/file-utils";
-import { extractDocumentData } from "@/lib/extraction";
+import {
+  extractDocumentData,
+  buildHintedExtractionPrompt,
+  ExtractionData,
+} from "@/lib/extraction";
 import { categorizeMovement } from "@/lib/categorization";
+import {
+  queryExtractionMemory,
+  reinforceExtractionMemory,
+} from "@/lib/extraction-memory";
 
-// Register extraction job handler
+// ---------------------------------------------------------------------------
+// Helper: call Ollama with a memory-hinted prompt
+// ---------------------------------------------------------------------------
+async function extractFieldsWithHintedPrompt(
+  rawText: string,
+  hints: Record<string, unknown>,
+): Promise<Partial<ExtractionData> | null> {
+  try {
+    const ollamaUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+    const prompt = buildHintedExtractionPrompt(rawText, hints);
+
+    const response = await fetch(`${ollamaUrl}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "qwen3.5:4b", prompt, stream: false }),
+    });
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const aiText = (data.response || "")
+      .trim()
+      .replace(/^```(?:json)?/, "")
+      .replace(/```$/, "");
+
+    const parsed = JSON.parse(aiText) as Record<string, unknown>;
+    return {
+      extractedDate: typeof parsed.extractedDate === "string" ? parsed.extractedDate : undefined,
+      extractedAmount:
+        typeof parsed.extractedAmount === "number"
+          ? parsed.extractedAmount
+          : undefined,
+      extractedCurrency:
+        typeof parsed.extractedCurrency === "string"
+          ? (parsed.extractedCurrency as string).toUpperCase()
+          : undefined,
+      extractedVendor:
+        typeof parsed.extractedVendor === "string"
+          ? parsed.extractedVendor
+          : undefined,
+      extractedCuit:
+        typeof parsed.extractedCuit === "string"
+          ? parsed.extractedCuit
+          : undefined,
+      extractedDocumentType:
+        typeof parsed.extractedDocumentType === "string"
+          ? (parsed.extractedDocumentType as ExtractionData["extractedDocumentType"])
+          : undefined,
+      extractedDescription:
+        typeof parsed.extractedDescription === "string"
+          ? parsed.extractedDescription
+          : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: insert extraction record
+// ---------------------------------------------------------------------------
+async function insertExtraction(
+  documentId: string,
+  data: ExtractionData,
+  method: string,
+) {
+  return db
+    .insert(extractions)
+    .values({
+      documentId,
+      rawOcrText: data.rawText,
+      extractedDate: data.extractedDate,
+      extractedAmount: data.extractedAmount?.toString() ?? null,
+      extractedCurrency: data.extractedCurrency,
+      extractedVendor: data.extractedVendor,
+      extractedCuit: data.extractedCuit,
+      extractedDocumentType: data.extractedDocumentType,
+      confidenceScores: data.confidenceScores,
+      overallConfidence: data.overallConfidence.toString(),
+      extractionErrors: data.errors,
+      extractionMethod: method,
+    })
+    .returning();
+}
+
+// ---------------------------------------------------------------------------
+// Extraction job handler
+// ---------------------------------------------------------------------------
 jobQueue.registerHandler("extract", async (job) => {
   const { documentId } = job;
   if (!documentId) throw new Error("No documentId in job payload");
@@ -40,63 +142,117 @@ jobQueue.registerHandler("extract", async (job) => {
       .set({ processingStatus: "extracting" })
       .where(eq(documents.id, documentId));
 
+    // ── Step 1: Extract raw text + initial field inference ─────────────────
     const fileBuffer = await getFile(doc.filePath);
-    const extractionData = await extractDocumentData(fileBuffer, doc.mimeType);
+    const extractedDocument = await extractDocumentData(
+      fileBuffer,
+      doc.mimeType,
+    );
 
-    const extractionRecord = await db
-      .insert(extractions)
-      .values({
-        documentId,
-        rawOcrText: extractionData.rawText,
-        extractedDate: extractionData.extractedDate,
-        extractedAmount: extractionData.extractedAmount
-          ? extractionData.extractedAmount.toString()
-          : null,
-        extractedCurrency: extractionData.extractedCurrency,
-        extractedVendor: extractionData.extractedVendor,
-        extractedDocumentType: extractionData.extractedDocumentType,
-        confidenceScores: extractionData.confidenceScores,
-        overallConfidence: extractionData.overallConfidence.toString(),
-        extractionErrors: extractionData.errors,
-        extractionMethod: extractionData.extractionMethod,
-      })
-      .returning();
+    for (const extractionData of extractedDocument.items) {
+      const cuit = extractionData.extractedCuit;
+      const documentType = extractionData.extractedDocumentType ?? "other";
 
-    if (extractionData.extractedDate && extractionData.extractedAmount) {
-      const categorization = await categorizeMovement(
-        extractionData.extractedVendor,
-        extractionData.extractedAmount,
-        extractionData.extractedDate,
-        extractionData.rawText,
-      );
+      // ── Step 2: Query extraction memory (CUIT + doc_type ≥ 85%) ───────────
+      const memoryHint = await queryExtractionMemory(cuit, documentType);
 
-      await db.insert(movements).values({
-        documentId,
-        extractionId: extractionRecord[0].id,
-        categoryId: categorization.categoryId,
-        vendorName: extractionData.extractedVendor,
-        amount: extractionData.extractedAmount.toString(),
-        currency: extractionData.extractedCurrency,
-        transactionDate: extractionData.extractedDate,
-        movementType: extractionData.extractedAmount > 0 ? "expense" : "income",
-        description: `Auto-categorized via ${categorization.method}`,
-        categorizationMethod: categorization.method,
-        confidenceScore: categorization.confidence.toString(),
-      });
+      if (memoryHint) {
+        // ── Step 3a: MEMORY FOUND — hinted extraction ─────────────────────
+        Logger.info(`[ExtractionMemory] Memory match — hinted extraction`, {
+          documentId,
+          memoryId: memoryHint.id,
+          vendor: memoryHint.vendorName,
+          cuit,
+          documentType,
+        });
 
-      Logger.info(`Movement created from extraction`, {
-        documentId,
-        categoryId: categorization.categoryId,
-        confidence: categorization.confidence,
-      });
+        const hintedFields = await extractFieldsWithHintedPrompt(
+          extractionData.rawText,
+          memoryHint.hints,
+        );
+
+        // Merge hinted fields over initial extraction (non-destructive)
+        const merged: ExtractionData = { ...extractionData };
+        if (hintedFields) {
+          if (hintedFields.extractedDate) merged.extractedDate = hintedFields.extractedDate;
+          if (hintedFields.extractedAmount) merged.extractedAmount = hintedFields.extractedAmount;
+          if (hintedFields.extractedCurrency) merged.extractedCurrency = hintedFields.extractedCurrency;
+          if (hintedFields.extractedVendor) merged.extractedVendor = hintedFields.extractedVendor;
+          if (hintedFields.extractedCuit) merged.extractedCuit = hintedFields.extractedCuit;
+          if (hintedFields.extractedDocumentType) merged.extractedDocumentType = hintedFields.extractedDocumentType;
+          if (hintedFields.extractedDescription) merged.extractedDescription = hintedFields.extractedDescription;
+        }
+
+        const extractionRecord = await insertExtraction(
+          documentId,
+          merged,
+          "memory-hinted",
+        );
+
+        if (merged.extractedDate && merged.extractedAmount) {
+          const categorization = await categorizeMovement(
+            merged.extractedVendor,
+            merged.extractedAmount,
+            merged.extractedDate,
+            merged.rawText,
+          );
+
+          await db.insert(movements).values({
+            documentId,
+            extractionId: extractionRecord[0].id,
+            categoryId: categorization.categoryId,
+            vendorName: merged.extractedVendor,
+            amount: merged.extractedAmount.toString(),
+            currency: merged.extractedCurrency,
+            transactionDate: merged.extractedDate,
+            movementType: merged.extractedDescription
+              ?.toLowerCase()
+              .includes("ingreso")
+              ? "income"
+              : "expense",
+            description: `Auto-extraído via memory. Categorizado: ${categorization.method}`,
+            categorizationMethod: categorization.method,
+            confidenceScore: categorization.confidence.toString(),
+          });
+
+          Logger.info(`Movement created via memory hint`, {
+            documentId,
+            categoryId: categorization.categoryId,
+            vendor: merged.extractedVendor,
+          });
+        }
+
+        // Reinforce memory (increment usage_count)
+        await reinforceExtractionMemory(memoryHint.id, {}, merged.rawText);
+
+        await db
+          .update(documents)
+          .set({ processingStatus: "completed" })
+          .where(eq(documents.id, documentId));
+
+        Logger.info(`Extraction completed via memory hint`, { documentId });
+      } else {
+        // ── Step 3b: NO MEMORY — store partial extraction, await review ──────
+        Logger.info(
+          `[ExtractionMemory] No match — document awaiting user review`,
+          { documentId, cuit, documentType },
+        );
+
+        await insertExtraction(
+          documentId,
+          extractionData,
+          extractionData.extractionMethod ?? "ocr",
+        );
+
+        // DO NOT create movement — user must confirm data first
+        await db
+          .update(documents)
+          .set({ processingStatus: "awaiting_review" })
+          .where(eq(documents.id, documentId));
+
+        Logger.info(`Document set to awaiting_review`, { documentId });
+      }
     }
-
-    await db
-      .update(documents)
-      .set({ processingStatus: "completed" })
-      .where(eq(documents.id, documentId));
-
-    Logger.info(`Extraction completed for document ${documentId}`);
   } catch (error) {
     Logger.error(`Extraction failed for document ${documentId}`, error);
     await db
@@ -110,6 +266,9 @@ jobQueue.registerHandler("extract", async (job) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/documents/upload
+// ---------------------------------------------------------------------------
 export async function POST(request: NextRequest) {
   try {
     Logger.info("Document upload request received");
@@ -129,18 +288,15 @@ export async function POST(request: NextRequest) {
     const uploadedDocuments = [];
 
     for (const file of files) {
-      // Validate file
       const validation = validateFile(file);
       if (!validation.valid) {
         throw HttpErrors.badRequest(validation.error || "Invalid file");
       }
 
-      // Read file buffer
       const buffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(buffer);
       const buf = Buffer.from(uint8Array);
 
-      // Validate magic bytes
       const magicBytesValid = await validateMagicBytes(buf);
       if (!magicBytesValid) {
         throw HttpErrors.badRequest(
@@ -148,11 +304,9 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Save file to disk
       const storagePath = await saveFile(buf, file.name);
-      Logger.info(`File saved to disk`, { path: storagePath, name: file.name });
+      Logger.info(`File saved`, { path: storagePath, name: file.name });
 
-      // Store document metadata in database
       const documentRecord = await db
         .insert(documents)
         .values({
@@ -175,15 +329,10 @@ export async function POST(request: NextRequest) {
         uploadedAt: documentRecord[0].uploadedAt,
       });
 
-      // Queue extraction job
       const jobId = jobQueue.enqueue(
         "extract",
         { documentId: documentRecord[0].id },
-        {
-          documentId: documentRecord[0].id,
-          priority: 10,
-          maxRetries: 3,
-        },
+        { documentId: documentRecord[0].id, priority: 10, maxRetries: 3 },
       );
 
       Logger.info(`Document queued for extraction`, {

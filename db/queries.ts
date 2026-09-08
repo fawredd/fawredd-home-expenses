@@ -92,6 +92,7 @@ export async function getDashboardMovements({
   const query = db
     .select({
       id: movements.id,
+      documentId: movements.documentId,
       transactionDate: movements.transactionDate,
       vendor: movements.vendorName,
       amount: movements.amount,
